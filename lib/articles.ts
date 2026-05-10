@@ -27,6 +27,24 @@ export interface Article {
 
 const ARTICLES_DIR = path.join(process.cwd(), "public", "data", "articles")
 
+// Map from slug → original filename (without .json)
+function buildSlugMap(): Map<string, string> {
+  const map = new Map<string, string>()
+  if (!fs.existsSync(ARTICLES_DIR)) return map
+  for (const f of fs.readdirSync(ARTICLES_DIR)) {
+    if (!f.endsWith(".json")) continue
+    const name = f.replace(".json", "")
+    map.set(toSlug(name), name)  // ascii slug → original name
+    map.set(name, name)           // raw name → itself
+  }
+  return map
+}
+
+// Convert any string to a URL-safe ASCII slug
+export function toSlug(s: string): string {
+  return encodeURIComponent(s).replace(/%../g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "")
+}
+
 export function loadArticles(): Article[] {
   if (!fs.existsSync(ARTICLES_DIR)) return []
   return fs
@@ -34,13 +52,25 @@ export function loadArticles(): Article[] {
     .filter((f) => f.endsWith(".json"))
     .sort()
     .reverse()
-    .map((f) => JSON.parse(fs.readFileSync(path.join(ARTICLES_DIR, f), "utf-8")) as Article)
+    .map((f) => {
+      const article = JSON.parse(fs.readFileSync(path.join(ARTICLES_DIR, f), "utf-8")) as Article
+      // Normalise id to ASCII slug so URL routing works regardless of Cyrillic filenames
+      article.id = toSlug(f.replace(".json", ""))
+      return article
+    })
 }
 
-export function getArticle(id: string): Article | null {
-  const file = path.join(ARTICLES_DIR, `${id}.json`)
+export function getArticle(slug: string): Article | null {
+  const slugMap = buildSlugMap()
+  // Try: decoded slug, raw slug, URL-decoded incoming slug
+  const decoded = (() => { try { return decodeURIComponent(slug) } catch { return slug } })()
+  const name = slugMap.get(decoded) ?? slugMap.get(slug) ?? slugMap.get(toSlug(decoded))
+  if (!name) return null
+  const file = path.join(ARTICLES_DIR, `${name}.json`)
   if (!fs.existsSync(file)) return null
-  return JSON.parse(fs.readFileSync(file, "utf-8")) as Article
+  const article = JSON.parse(fs.readFileSync(file, "utf-8")) as Article
+  article.id = toSlug(name)
+  return article
 }
 
 export function articleSlug(id: string) {
