@@ -96,10 +96,8 @@ export default function TournamentLive() {
   const esRef = useRef<EventSource | null>(null)
 
   useEffect(() => {
-    // Check if something is running
-    fetch("/api/runner/status").then(r => r.json()).then(s => {
-      if (s.running) connect()
-    }).catch(() => {})
+    // Always connect — the stream replays buffered events so we get full history after refresh
+    connect()
   }, [])
 
   function connect() {
@@ -112,10 +110,13 @@ export default function TournamentLive() {
       try {
         const evt = JSON.parse(e.data)
         handleEvent(evt)
+        // Close stream once we get runner_end — no need to keep connection open
+        if (evt.type === "runner_end") es.close()
       } catch { /* ignore parse errors */ }
     }
     es.onerror = () => {
-      setStatus("disconnected")
+      // Don't show disconnected if we already got results
+      setStatus(s => s === "running" ? "disconnected" : s)
       es.close()
     }
   }
@@ -161,7 +162,7 @@ export default function TournamentLive() {
         setStatus("error")
         break
       case "runner_end":
-        if (status !== "done") setStatus("idle")
+        setStatus(s => s === "running" ? "idle" : s)
         break
     }
   }
