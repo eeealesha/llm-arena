@@ -45,8 +45,9 @@ jobs:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
+          envs: OLLAMA_API_KEY
           script: |
-            # Preserve server-generated data (tournaments run on server, articles)
+            # Preserve server-generated data
             if [ -d /opt/llm-arena/data/tournaments ]; then
               cp -rn /opt/llm-arena/data/tournaments/. /opt/llm-arena-new/data/tournaments/
             fi
@@ -58,6 +59,35 @@ jobs:
               cp -rn /opt/llm-arena/runner/state/. /opt/llm-arena-new/runner/state/
             fi
 
+            # Write pm2 ecosystem config with secrets (not committed to git)
+            cat > /opt/llm-arena-new/ecosystem.config.js << EOFCONFIG
+            module.exports = {
+              apps: [
+                {
+                  name: "llm-arena",
+                  script: "server.js",
+                  cwd: "/opt/llm-arena",
+                  env: { PORT: 3000, NODE_ENV: "production" }
+                },
+                {
+                  name: "tournament-runner",
+                  script: "runner/api.py",
+                  interpreter: "python3",
+                  cwd: "/opt/llm-arena",
+                  autorestart: true,
+                  env: {
+                    PORT: "5001",
+                    BASE_DIR: "/opt/llm-arena",
+                    DATA_DIR: "/opt/llm-arena/data",
+                    ARTICLES_DIR: "/opt/llm-arena/public/data/articles",
+                    OLLAMA_HOST: "https://ollama.com",
+                    OLLAMA_API_KEY: "$OLLAMA_API_KEY"
+                  }
+                }
+              ]
+            }
+            EOFCONFIG
+
             # Atomic swap
             rm -rf /opt/llm-arena-old
             mv /opt/llm-arena /opt/llm-arena-old
@@ -66,15 +96,8 @@ jobs:
             # Install Python runner deps
             pip3 install -r /opt/llm-arena/runner/requirements.txt --quiet 2>/dev/null || true
 
-            # Restart Next.js
-            pm2 restart llm-arena
-
-            # Restart Python runner if it exists
-            pm2 restart tournament-runner 2>/dev/null || \
-              pm2 start /opt/llm-arena/runner/api.py \
-                --name tournament-runner \
-                --interpreter python3 \
-                --cwd /opt/llm-arena \
-                -- --port 5001 2>/dev/null || true
-
+            # Start/restart both processes via ecosystem config
+            pm2 startOrRestart /opt/llm-arena/ecosystem.config.js
             pm2 save
+        env:
+          OLLAMA_API_KEY: ${{ secrets.OLLAMA_API_KEY }}
