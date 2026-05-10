@@ -25,6 +25,7 @@ jobs:
       - name: Prepare standalone package
         run: |
           cp -r data .next/standalone/
+          cp -r public .next/standalone/
           cp -r .next/static .next/standalone/.next/
 
       - name: Deploy to server
