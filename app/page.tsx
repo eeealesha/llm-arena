@@ -1,3 +1,4 @@
+export const dynamic = "force-dynamic"
 import Link from "next/link"
 import { loadTournaments, aggregateLeaderboard, modelSlug } from "@/lib/data"
 import type { GlobalModelStats } from "@/lib/types"

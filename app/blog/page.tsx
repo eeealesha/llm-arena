@@ -1,3 +1,4 @@
+export const dynamic = "force-dynamic"
 import Link from "next/link"
 import { loadArticles, ROLE_LABELS } from "@/lib/articles"
 

@@ -3,9 +3,19 @@ import Link from "next/link"
 import { getTournament, loadTournaments, modelSlug } from "@/lib/data"
 import TournamentBracket from "@/components/bracket"
 import TournamentNav from "@/components/tournament-nav"
+import type { Metadata } from "next"
 
-export function generateStaticParams() {
-  return loadTournaments().map((t) => ({ id: t.id }))
+export const dynamic = "force-dynamic"
+
+export async function generateMetadata({ params }: { params: { id: string } }): Promise<Metadata> {
+  const t = getTournament(params.id)
+  if (!t) return {}
+  const winner = t.ranking[0]?.model ?? ""
+  return {
+    title: `Турнир ${new Date(t.run_at).toLocaleDateString("ru-RU")} — ${winner.split(":")[0]}`,
+    description: t.task.slice(0, 160),
+    openGraph: { title: `LLM Arena — ${t.task.slice(0, 60)}`, description: t.task.slice(0, 160) },
+  }
 }
 
 export default function TournamentPage({ params }: { params: { id: string } }) {

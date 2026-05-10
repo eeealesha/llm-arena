@@ -1,8 +1,23 @@
 import { notFound } from "next/navigation"
-import { loadArticles, getArticle, ROLE_LABELS } from "@/lib/articles"
+import { getArticle, ROLE_LABELS } from "@/lib/articles"
+import type { Metadata } from "next"
 
-export function generateStaticParams() {
-  return loadArticles().map((a) => ({ slug: a.id }))
+export const dynamic = "force-dynamic"
+
+export async function generateMetadata({ params }: { params: { slug: string } }): Promise<Metadata> {
+  const article = getArticle(params.slug)
+  if (!article) return {}
+  const desc = article.final_text.replace(/[#>*_`\-]{1,3}/g, "").slice(0, 160).trim()
+  return {
+    title: article.topic,
+    description: desc,
+    openGraph: {
+      title: article.topic,
+      description: desc,
+      type: "article",
+      publishedTime: article.published_at,
+    },
+  }
 }
 
 export default function ArticlePage({ params }: { params: { slug: string } }) {

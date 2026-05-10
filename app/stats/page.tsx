@@ -1,3 +1,4 @@
+export const dynamic = "force-dynamic"
 import { loadTournaments, aggregateLeaderboard } from "@/lib/data"
 import { getModelMeta } from "@/lib/models"
 import { SizeVsPerformanceChart, EfficiencyChart, WinRateChart } from "@/components/stats-charts"

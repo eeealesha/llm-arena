@@ -1,3 +1,4 @@
+export const dynamic = "force-dynamic"
 import { loadTournaments } from "@/lib/data"
 import { ROLE_LABELS } from "@/lib/articles"
 import Link from "next/link"

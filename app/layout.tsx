@@ -3,8 +3,15 @@ import "./globals.css"
 import Nav from "@/components/nav"
 
 export const metadata: Metadata = {
-  title: "LLM Tournament Benchmark",
-  description: "Open benchmark for free LLMs — Swiss tournament, multi-criteria judging, prompt evolution",
+  title: { default: "LLM Arena", template: "%s | LLM Arena" },
+  description: "Открытый бенчмарк бесплатных LLM — швейцарский турнир, мультикритериальное судейство, эволюция промптов",
+  metadataBase: new URL("https://onlyanalyst.ru"),
+  openGraph: {
+    siteName: "LLM Arena",
+    locale: "ru_RU",
+    type: "website",
+  },
+  robots: { index: true, follow: true },
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

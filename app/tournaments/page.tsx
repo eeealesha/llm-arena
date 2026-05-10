@@ -1,6 +1,8 @@
 import Link from "next/link"
 import { loadTournaments } from "@/lib/data"
 
+export const dynamic = "force-dynamic"
+
 export default function TournamentsPage() {
   const tournaments = loadTournaments()
 
