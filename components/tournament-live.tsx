@@ -4,6 +4,24 @@ import { useEffect, useRef, useState } from "react"
 interface TsEntry { model: string; rank: number; ts: number; mu: number; sigma: number; W: number; L: number; D: number }
 interface MatchEvent { round: number; match: number; A: string; B: string; verdict: string; reasoning: string; scores_a: Record<string, number>; scores_b: Record<string, number>; ts_a: number; ts_b: number }
 interface RoundEnd { round: number; standings: TsEntry[]; comment: string | null }
+interface ArticleStep { step: string; model: string; words?: number; time?: number; done: boolean }
+interface ArticleState { topic: string; style: string; steps: ArticleStep[]; done: { id: string; words: number } | null }
+
+const STEP_META: Record<string, { icon: string; label: string }> = {
+  planner:      { icon: "📋", label: "Планёр" },
+  author_draft: { icon: "✍️", label: "Черновик автора" },
+  editor_v1:    { icon: "✅", label: "Редактура v1" },
+  author_v2:    { icon: "✍️", label: "Доработка v2" },
+  editor_v2:    { icon: "✅", label: "Редактура v2" },
+  chief_editor: { icon: "👑", label: "Выпускающий редактор" },
+}
+
+function stepMeta(step: string) {
+  if (step in STEP_META) return STEP_META[step]
+  if (step.startsWith("editor_v")) return { icon: "✅", label: `Редактура v${step.slice(-1)}` }
+  if (step.startsWith("author_v")) return { icon: "✍️", label: `Доработка v${step.slice(-1)}` }
+  return { icon: "•", label: step }
+}
 
 function shortName(m: string) { return m.split(":")[0].split("/").pop() ?? m }
 function scoreTotal(s: Record<string, number> | undefined) {
@@ -91,6 +109,75 @@ function MatchCard({ m }: { m: MatchEvent }) {
   )
 }
 
+function ArticlePipeline({ article }: { article: ArticleState }) {
+  const styleIcon = article.style === "storyteller" ? "✍️" : "🔬"
+  return (
+    <div className="space-y-4">
+      <div className="card border-indigo-700/40 bg-indigo-950/10">
+        <div className="text-xs uppercase tracking-wide text-indigo-400 mb-1">
+          {styleIcon} {article.style === "storyteller" ? "Сторителлер" : "Аналитик"} · пишет статью
+        </div>
+        <div className="text-white font-semibold leading-snug">{article.topic}</div>
+      </div>
+
+      <div className="relative pl-6">
+        {/* vertical line */}
+        <div className="absolute left-[10px] top-2 bottom-2 w-px bg-[#2a2d3e]" />
+        {article.steps.length === 0 ? (
+          <div className="text-gray-600 text-sm py-2">Готовлю редакцию...</div>
+        ) : (
+          article.steps.map((s, i) => {
+            const meta = stepMeta(s.step)
+            const isCurrent = !s.done
+            return (
+              <div key={`${s.step}-${i}`} className="relative pb-4 last:pb-0">
+                {/* node */}
+                <div className={`absolute -left-6 top-0.5 w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${
+                  s.done
+                    ? "bg-emerald-600/30 text-emerald-300 border border-emerald-600/50"
+                    : "bg-indigo-600/30 text-indigo-300 border border-indigo-600/50 animate-pulse"
+                }`}>
+                  {s.done ? "✓" : "•"}
+                </div>
+                <div className="flex items-baseline gap-2 flex-wrap">
+                  <span className="text-base">{meta.icon}</span>
+                  <span className={`text-sm font-medium ${isCurrent ? "text-white" : "text-gray-300"}`}>
+                    {meta.label}
+                  </span>
+                  <span className="text-xs text-gray-500 font-mono">{shortName(s.model)}</span>
+                  {s.done && s.words !== undefined && (
+                    <span className="text-xs text-gray-600 ml-auto shrink-0">
+                      {s.words} слов{s.time ? ` · ${s.time}s` : ""}
+                    </span>
+                  )}
+                  {isCurrent && (
+                    <span className="text-xs text-indigo-400 ml-auto shrink-0 inline-flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse" />
+                      пишет...
+                    </span>
+                  )}
+                </div>
+              </div>
+            )
+          })
+        )}
+      </div>
+
+      {article.done && (
+        <div className="card border-emerald-800/50 bg-emerald-950/20 text-center py-5">
+          <div className="text-3xl mb-1">📝</div>
+          <div className="text-white font-bold">Статья готова</div>
+          <div className="text-emerald-400 text-xs mt-1">{article.done.words} слов</div>
+          <a href={`/blog/${article.done.id}`}
+             className="mt-3 inline-block px-4 py-1.5 rounded-lg bg-indigo-600 text-white text-sm hover:bg-indigo-500 transition-colors">
+            Открыть статью →
+          </a>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function RoundSection({ rnd, matches, comment }: { rnd: number; matches: MatchEvent[]; comment: string | null }) {
   return (
     <div className="space-y-2">
@@ -121,6 +208,7 @@ export default function TournamentLive() {
   const [config, setConfig]       = useState<{ contestants: string[]; rounds: number; judge: string } | null>(null)
   const [done, setDone]           = useState<{ winner: string; tournament_id: string } | null>(null)
   const [tab, setTab]             = useState<"matches" | "posts">("matches")
+  const [article, setArticle]     = useState<ArticleState | null>(null)
   const esRef = useRef<EventSource | null>(null)
 
   useEffect(() => {
@@ -197,6 +285,43 @@ export default function TournamentLive() {
         setStandings([])
         setDone(null)
         setConfig(null)
+        setArticle(null)
+        break
+      case "article_start":
+        setStatus("running")
+        setArticle({
+          topic: evt.topic as string || "",
+          style: evt.style as string || "storyteller",
+          steps: [],
+          done: null,
+        })
+        setStatusMsg(`Пишу статью: ${evt.topic as string || ""}`)
+        break
+      case "article_step":
+        setArticle(a => a ? {
+          ...a,
+          steps: [...a.steps, { step: evt.step as string, model: evt.model as string, done: false }],
+        } : a)
+        setStatusMsg(`${stepMeta(evt.step as string).label}: ${shortName(evt.model as string)}`)
+        break
+      case "article_step_done":
+        setArticle(a => {
+          if (!a) return a
+          const steps = [...a.steps]
+          // mark the last matching step as done
+          for (let i = steps.length - 1; i >= 0; i--) {
+            if (steps[i].step === evt.step && !steps[i].done) {
+              steps[i] = { ...steps[i], done: true, words: evt.words as number, time: evt.time as number }
+              break
+            }
+          }
+          return { ...a, steps }
+        })
+        break
+      case "article_done":
+        setArticle(a => a ? { ...a, done: { id: evt.id as string, words: evt.words as number }, steps: a.steps.map(s => ({ ...s, done: true })) } : a)
+        setStatus("done")
+        setStatusMsg("")
         break
       case "error":
         setStatusMsg(`Ошибка: ${evt.message}`)
@@ -222,7 +347,8 @@ export default function TournamentLive() {
 
   const postModels = Object.keys(posts)
   const isRunning = status === "running"
-  const hasData = matches.length > 0 || postModels.length > 0 || done !== null
+  const isArticleMode = article !== null
+  const hasData = matches.length > 0 || postModels.length > 0 || done !== null || isArticleMode
 
   return (
     <div className="space-y-4">
@@ -250,8 +376,11 @@ export default function TournamentLive() {
         )}
       </div>
 
+      {/* Article pipeline (takes over the view when an article is being written) */}
+      {isArticleMode && <ArticlePipeline article={article!} />}
+
       {/* Done banner */}
-      {done && (
+      {!isArticleMode && done && (
         <div className="card border-emerald-800/50 bg-emerald-950/20 text-center py-5">
           <div className="text-3xl mb-1">🏆</div>
           <div className="text-white font-bold">{shortName(done.winner)}</div>
@@ -264,7 +393,7 @@ export default function TournamentLive() {
       )}
 
       {/* Config summary */}
-      {config && (
+      {!isArticleMode && config && (
         <div className="flex gap-3 text-xs text-gray-500">
           <span className="px-2 py-1 rounded bg-[#1a1d27] border border-[#2a2d3e]">
             {config.contestants.length} участников
@@ -281,7 +410,7 @@ export default function TournamentLive() {
       )}
 
       {/* Live standings */}
-      {standings.length > 0 && (
+      {!isArticleMode && standings.length > 0 && (
         <div className="card p-0 overflow-hidden">
           <div className="px-3 py-2 border-b border-[#2a2d3e] text-xs text-gray-500 uppercase tracking-wide">
             Рейтинг
@@ -303,8 +432,8 @@ export default function TournamentLive() {
         </div>
       )}
 
-      {/* Tabs: matches / posts */}
-      {hasData && (
+      {/* Tabs: matches / posts (tournament mode only) */}
+      {!isArticleMode && hasData && (
         <div>
           <div className="flex gap-1 border-b border-[#2a2d3e] mb-4">
             <button

@@ -5,6 +5,9 @@ on:
   schedule:
     - cron: "0 3 1 * *"  # monthly, 3am UTC
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 jobs:
   renew:
     runs-on: ubuntu-latest
