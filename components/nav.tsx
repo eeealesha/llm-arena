@@ -7,6 +7,8 @@ const links = [
   { href: "/tournaments", label: "Турниры" },
   { href: "/stats", label: "Статистика" },
   { href: "/compare", label: "SBS" },
+  { href: "/blog", label: "Блог" },
+  { href: "/team", label: "Редакция" },
 ]
 
 export default function Nav() {
