@@ -94,7 +94,7 @@ jobs:
             mv /opt/llm-arena-new /opt/llm-arena
 
             # Install Python runner deps
-            pip3 install -r /opt/llm-arena/runner/requirements.txt --quiet 2>/dev/null || true
+            apt-get install -y python3-flask python3-requests -qq 2>/dev/null || true
 
             # Start/restart both processes via ecosystem config
             pm2 startOrRestart /opt/llm-arena/ecosystem.config.js
