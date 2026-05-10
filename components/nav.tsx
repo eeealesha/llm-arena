@@ -5,7 +5,8 @@ import { usePathname } from "next/navigation"
 const links = [
   { href: "/", label: "Лидерборд" },
   { href: "/tournaments", label: "Турниры" },
-  { href: "/compare", label: "SBS Голосование" },
+  { href: "/stats", label: "Статистика" },
+  { href: "/compare", label: "SBS" },
 ]
 
 export default function Nav() {

@@ -1,0 +1,116 @@
+{
+  "checked_at": "2026-05-10T13:33:33.490384",
+  "host": "https://ollama.com",
+  "available": [
+    {
+      "name": "devstral-2:123b",
+      "size_gb": 128.25
+    },
+    {
+      "name": "gpt-oss:120b",
+      "size_gb": 65.29
+    },
+    {
+      "name": "qwen3-vl:235b-instruct",
+      "size_gb": 470.0
+    },
+    {
+      "name": "qwen3-coder-next",
+      "size_gb": 81.8
+    },
+    {
+      "name": "minimax-m2.1",
+      "size_gb": 230.0
+    },
+    {
+      "name": "gemma3:4b",
+      "size_gb": 8.6
+    },
+    {
+      "name": "rnj-1:8b",
+      "size_gb": 16.0
+    },
+    {
+      "name": "qwen3-vl:235b",
+      "size_gb": 470.0
+    },
+    {
+      "name": "minimax-m2",
+      "size_gb": 230.0
+    },
+    {
+      "name": "ministral-3:3b",
+      "size_gb": 4.67
+    },
+    {
+      "name": "devstral-small-2:24b",
+      "size_gb": 51.6
+    },
+    {
+      "name": "gemma4:31b",
+      "size_gb": 62.55
+    },
+    {
+      "name": "glm-4.6",
+      "size_gb": 696.06
+    },
+    {
+      "name": "minimax-m2.5",
+      "size_gb": 230.0
+    },
+    {
+      "name": "ministral-3:8b",
+      "size_gb": 10.4
+    },
+    {
+      "name": "gemma3:12b",
+      "size_gb": 24.0
+    },
+    {
+      "name": "gemma3:27b",
+      "size_gb": 55.0
+    },
+    {
+      "name": "cogito-2.1:671b",
+      "size_gb": 688.59
+    },
+    {
+      "name": "qwen3-next:80b",
+      "size_gb": 81.8
+    },
+    {
+      "name": "gpt-oss:20b",
+      "size_gb": 13.78
+    },
+    {
+      "name": "qwen3-coder:480b",
+      "size_gb": 510.49
+    },
+    {
+      "name": "nemotron-3-nano:30b",
+      "size_gb": 32.65
+    },
+    {
+      "name": "ministral-3:14b",
+      "size_gb": 15.7
+    }
+  ],
+  "blocked": [
+    "nemotron-3-super",
+    "kimi-k2.6",
+    "qwen3.5:397b",
+    "deepseek-v3.2",
+    "deepseek-v3.1:671b",
+    "gemini-3-flash-preview",
+    "deepseek-v4-pro",
+    "deepseek-v4-flash",
+    "mistral-large-3:675b",
+    "glm-5",
+    "glm-5.1",
+    "kimi-k2:1t",
+    "kimi-k2.5",
+    "minimax-m2.7",
+    "glm-4.7",
+    "kimi-k2-thinking"
+  ]
+}

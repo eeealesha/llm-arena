@@ -2,6 +2,7 @@ import { notFound } from "next/navigation"
 import Link from "next/link"
 import { getTournament, loadTournaments, modelSlug } from "@/lib/data"
 import MatchLogView from "@/components/match-log"
+import TournamentBracket from "@/components/bracket"
 
 export function generateStaticParams() {
   return loadTournaments().map((t) => ({ id: t.id }))
@@ -174,16 +175,30 @@ export default function TournamentPage({ params }: { params: { id: string } }) {
         </div>
       )}
 
-      {/* Match log */}
+      {/* Swiss bracket */}
       <div>
         <h2 className="text-lg font-semibold mb-4">
-          Матчи
+          Сетка турнира
           <span className="text-gray-500 font-normal text-sm ml-2">
-            нажми на строку для деталей
+            нажми на матч для просмотра постов и reasoning
           </span>
         </h2>
-        <MatchLogView log={t.match_log} />
+        <TournamentBracket
+          log={t.match_log}
+          posts={t.posts}
+          ranking={t.ranking}
+        />
       </div>
+
+      {/* Match log (compact) */}
+      <details>
+        <summary className="text-gray-400 text-sm cursor-pointer hover:text-gray-200 transition-colors">
+          Список матчей (текстовый вид)
+        </summary>
+        <div className="mt-4">
+          <MatchLogView log={t.match_log} />
+        </div>
+      </details>
     </div>
   )
 }
