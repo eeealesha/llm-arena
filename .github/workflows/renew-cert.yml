@@ -1,0 +1,22 @@
+name: Renew SSL certificate
+
+on:
+  workflow_dispatch:  # manual trigger
+  schedule:
+    - cron: "0 3 1 * *"  # monthly, 3am UTC
+
+jobs:
+  renew:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Renew Let's Encrypt cert
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script: |
+            certbot renew --nginx --quiet
+            systemctl reload nginx
+            echo "Cert status:"
+            certbot certificates 2>/dev/null | grep -A3 "onlyanalyst.ru"
