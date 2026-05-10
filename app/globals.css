@@ -1,0 +1,46 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+:root {
+  --bg: #0f1117;
+  --surface: #1a1d27;
+  --border: #2a2d3e;
+  --text: #e2e8f0;
+  --muted: #6b7280;
+  --accent: #6366f1;
+}
+
+body {
+  background-color: var(--bg);
+  color: var(--text);
+  font-family: Inter, system-ui, sans-serif;
+}
+
+.card {
+  @apply bg-[#1a1d27] border border-[#2a2d3e] rounded-xl p-5;
+}
+
+.badge {
+  @apply inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium;
+}
+
+.btn {
+  @apply inline-flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors text-sm;
+}
+
+.btn-primary {
+  @apply btn bg-indigo-600 hover:bg-indigo-500 text-white;
+}
+
+.btn-ghost {
+  @apply btn border border-[#2a2d3e] hover:bg-[#2a2d3e] text-gray-300;
+}
+
+table { @apply w-full text-sm; }
+thead tr { @apply border-b border-[#2a2d3e]; }
+th { @apply text-left py-3 px-3 text-gray-400 font-medium; }
+td { @apply py-3 px-3 border-b border-[#1e2130]; }
+tr:hover td { @apply bg-[#1e2130]; }
