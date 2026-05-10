@@ -52,6 +52,7 @@ export interface Tournament {
   match_log: MatchLog[]
   reasoning_summary?: string
   criteria_avgs?: Record<string, CriteriaScores>
+  round_comments?: Record<string, string>
   // helpers
   format: "swiss" | "roundRobin" | "final" | "iter" | "unknown"
   prompt_version: number

@@ -6,12 +6,7 @@ interface BracketProps {
   log: MatchLog[]
   posts: Record<string, string>
   ranking: TournamentRanking[]
-}
-
-interface MatchDetailProps {
-  match: MatchLog
-  posts: Record<string, string>
-  onClose: () => void
+  roundComments?: Record<string, string>
 }
 
 const CRITERIA_LABELS: Record<string, string> = {
@@ -21,136 +16,177 @@ const CRITERIA_LABELS: Record<string, string> = {
   originality: "Оригинальность",
 }
 
-function shortName(model: string) {
-  return model.split(":")[0].split("/").pop() ?? model
+function shortName(m: string) {
+  return m.split(":")[0].split("/").pop() ?? m
 }
 
-function MatchDetail({ match, posts, onClose }: MatchDetailProps) {
-  const [tab, setTab] = useState<"posts" | "scores">("posts")
-  const postA = posts[match.A] ?? "Пост недоступен"
-  const postB = posts[match.B] ?? "Пост недоступен"
+function scoreTotal(s: Record<string, number> | undefined) {
+  if (!s) return null
+  return Object.values(s).reduce((a, b) => a + b, 0)
+}
 
-  const totalA = match.scores_a ? Object.values(match.scores_a).reduce((a, b) => a + b, 0) : null
-  const totalB = match.scores_b ? Object.values(match.scores_b).reduce((a, b) => a + b, 0) : null
+// ── Match detail modal ─────────────────────────────────────────────────────
+function MatchModal({
+  match,
+  posts,
+  onClose,
+}: {
+  match: MatchLog
+  posts: Record<string, string>
+  onClose: () => void
+}) {
+  const [tab, setTab] = useState<"posts" | "scores">("scores")
+  const totalA = scoreTotal(match.scores_a as Record<string, number>)
+  const totalB = scoreTotal(match.scores_b as Record<string, number>)
+  const tsA = match.ts_a ?? match.elo_a
+  const tsB = match.ts_b ?? match.elo_b
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center bg-black/70 backdrop-blur-sm p-4 overflow-y-auto"
+      className="fixed inset-0 z-50 flex items-start justify-center bg-black/80 backdrop-blur-sm p-4 pt-16 overflow-y-auto"
       onClick={onClose}
     >
       <div
-        className="bg-[#1a1d27] border border-[#2a2d3e] rounded-2xl w-full max-w-5xl my-8 overflow-hidden"
+        className="bg-[#13151f] border border-[#2a2d3e] rounded-2xl w-full max-w-4xl overflow-hidden shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-[#2a2d3e]">
+        {/* Header bar */}
+        <div className="flex items-center justify-between px-5 py-3 border-b border-[#2a2d3e] bg-[#1a1d27]">
           <div className="flex items-center gap-3">
-            <span className="badge bg-[#2a2d3e] text-gray-400 text-xs">Раунд {match.round} · Матч #{match.match}</span>
-            <span className={`font-bold text-sm px-3 py-1 rounded-full ${
-              match.verdict === "A" ? "bg-blue-600/20 text-blue-300" :
-              match.verdict === "B" ? "bg-purple-600/20 text-purple-300" :
-              "bg-gray-600/20 text-gray-300"
-            }`}>
-              {match.verdict === "DRAW" ? "Ничья" : `Победил Пост ${match.verdict}`}
-            </span>
+            <span className="text-gray-500 text-xs">Раунд {match.round} · Матч #{match.match}</span>
+            {match.verdict !== "DRAW" ? (
+              <span className="text-xs font-semibold text-emerald-400">
+                Победа {match.verdict === "A" ? shortName(match.A) : shortName(match.B)}
+              </span>
+            ) : (
+              <span className="text-xs text-gray-400">Ничья</span>
+            )}
           </div>
-          <button onClick={onClose} className="text-gray-500 hover:text-gray-300 text-xl leading-none">✕</button>
+          <button
+            onClick={onClose}
+            className="text-gray-500 hover:text-gray-200 text-lg w-7 h-7 flex items-center justify-center rounded hover:bg-[#2a2d3e] transition-colors"
+          >
+            ✕
+          </button>
         </div>
 
-        {/* Models */}
-        <div className="grid grid-cols-2 gap-0 border-b border-[#2a2d3e]">
-          {([["A", match.A, "blue"], ["B", match.B, "purple"]] as const).map(([side, model, color]) => (
-            <div key={side} className={`px-6 py-3 flex items-center gap-2 ${
-              side === "A" ? "border-r border-[#2a2d3e]" : ""
-            } ${match.verdict === side ? "bg-" + color + "-950/30" : ""}`}>
-              <span className={`badge bg-${color}-600/20 text-${color}-300 font-bold`}>Пост {side}</span>
-              <span className="text-gray-300 text-sm font-medium">{shortName(model)}</span>
-              {match.verdict === side && <span className="text-xs text-emerald-400 ml-auto">✓ Победитель</span>}
-            </div>
-          ))}
+        {/* Match header — both players */}
+        <div className="grid grid-cols-2 border-b border-[#2a2d3e]">
+          {(["A", "B"] as const).map((side) => {
+            const model = side === "A" ? match.A : match.B
+            const total = side === "A" ? totalA : totalB
+            const ts = side === "A" ? tsA : tsB
+            const won = match.verdict === side
+            const lost = match.verdict !== "DRAW" && match.verdict !== side
+            return (
+              <div
+                key={side}
+                className={`px-5 py-4 flex items-center gap-3 ${side === "A" ? "border-r border-[#2a2d3e]" : ""} ${
+                  won ? "bg-emerald-950/20" : lost ? "opacity-50" : ""
+                }`}
+              >
+                <div
+                  className={`w-1 h-10 rounded-full shrink-0 ${
+                    won ? "bg-emerald-500" : lost ? "bg-[#2a2d3e]" : "bg-gray-600"
+                  }`}
+                />
+                <div className="flex-1 min-w-0">
+                  <div className="text-xs text-gray-500 mb-0.5">Пост {side}</div>
+                  <div className={`font-semibold text-sm truncate ${won ? "text-white" : "text-gray-400"}`}>
+                    {shortName(model)}
+                  </div>
+                </div>
+                <div className="text-right shrink-0">
+                  {total !== null && (
+                    <div className={`text-xl font-bold font-mono ${won ? "text-emerald-400" : "text-gray-500"}`}>
+                      {total}
+                      <span className="text-xs text-gray-600">/20</span>
+                    </div>
+                  )}
+                  {ts !== undefined && (
+                    <div className="text-xs text-gray-600 mt-0.5">TS {ts.toFixed(1)}</div>
+                  )}
+                </div>
+              </div>
+            )
+          })}
         </div>
 
         {/* Tabs */}
         <div className="flex border-b border-[#2a2d3e]">
-          {(["posts", "scores"] as const).map((t) => (
+          {(["scores", "posts"] as const).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
-              className={`px-6 py-3 text-sm font-medium transition-colors ${
+              className={`px-5 py-2.5 text-sm font-medium transition-colors ${
                 tab === t
                   ? "text-indigo-300 border-b-2 border-indigo-500"
                   : "text-gray-500 hover:text-gray-300"
               }`}
             >
-              {t === "posts" ? "Посты" : "Оценки судьи"}
+              {t === "scores" ? "Оценки судьи" : "Посты"}
             </button>
           ))}
         </div>
 
-        {tab === "posts" && (
-          <div className="grid grid-cols-2 gap-0 min-h-64">
-            {([["A", postA, "blue"], ["B", postB, "purple"]] as const).map(([side, post, color]) => (
-              <div key={side} className={`px-6 py-5 ${side === "A" ? "border-r border-[#2a2d3e]" : ""} ${
-                match.verdict === side ? "bg-" + color + "-950/10" : ""
-              }`}>
-                <p className="text-gray-200 text-sm leading-relaxed whitespace-pre-wrap">{post}</p>
-              </div>
-            ))}
-          </div>
-        )}
-
+        {/* Scores tab */}
         {tab === "scores" && (
-          <div className="px-6 py-5 space-y-5">
-            {/* Reasoning */}
+          <div className="px-5 py-5 space-y-5">
             {match.reasoning && match.reasoning !== "нет ответа" && (
-              <div className="bg-[#13151f] rounded-xl p-4">
-                <div className="text-xs text-gray-500 mb-2 uppercase tracking-wide">Мотивация судьи</div>
+              <div className="bg-[#0f1117] rounded-xl p-4 border border-[#2a2d3e]">
+                <div className="text-xs text-amber-400/70 uppercase tracking-wide mb-2">Вердикт судьи</div>
                 <p className="text-gray-300 text-sm leading-relaxed">{match.reasoning}</p>
               </div>
             )}
-
-            {/* Criteria comparison */}
             {match.scores_a && match.scores_b && (
-              <div className="space-y-3">
-                <div className="text-xs text-gray-500 uppercase tracking-wide mb-3">Оценки по критериям</div>
+              <div className="space-y-2.5">
+                <div className="grid grid-cols-[1fr_auto_1fr] gap-3 text-xs text-gray-500 text-center mb-1">
+                  <div className="text-right pr-2">{shortName(match.A)}</div>
+                  <div />
+                  <div className="text-left pl-2">{shortName(match.B)}</div>
+                </div>
                 {Object.entries(CRITERIA_LABELS).map(([key, label]) => {
                   const a = (match.scores_a as Record<string, number>)[key] ?? 0
                   const b = (match.scores_b as Record<string, number>)[key] ?? 0
-                  const winner = a > b ? "A" : b > a ? "B" : "="
+                  const aWins = a > b
+                  const bWins = b > a
                   return (
-                    <div key={key} className="grid grid-cols-[1fr_80px_1fr] gap-3 items-center">
+                    <div key={key} className="grid grid-cols-[1fr_72px_1fr] gap-2 items-center">
+                      {/* A side */}
                       <div className="flex items-center gap-2 justify-end">
-                        <span className="text-blue-300 font-bold text-lg">{a}</span>
-                        <div className="h-2 bg-blue-600/30 rounded-full overflow-hidden w-24 flex justify-end">
-                          <div className="h-full bg-blue-500 rounded-full" style={{ width: `${(a / 5) * 100}%` }} />
+                        <span className={`text-base font-bold font-mono ${aWins ? "text-emerald-400" : "text-gray-500"}`}>{a}</span>
+                        <div className="w-20 h-1.5 bg-[#2a2d3e] rounded-full overflow-hidden flex justify-end">
+                          <div
+                            className={`h-full rounded-full ${aWins ? "bg-emerald-500" : "bg-gray-600"}`}
+                            style={{ width: `${(a / 5) * 100}%` }}
+                          />
                         </div>
                       </div>
-                      <div className="text-center">
-                        <div className="text-xs text-gray-400">{label}</div>
-                        <div className={`text-xs font-bold mt-0.5 ${
-                          winner === "A" ? "text-blue-400" : winner === "B" ? "text-purple-400" : "text-gray-500"
-                        }`}>
-                          {winner === "=" ? "=" : `${winner}  ▶`}
-                        </div>
-                      </div>
+                      {/* Label */}
+                      <div className="text-center text-xs text-gray-500 leading-tight">{label}</div>
+                      {/* B side */}
                       <div className="flex items-center gap-2">
-                        <div className="h-2 bg-purple-600/30 rounded-full overflow-hidden w-24">
-                          <div className="h-full bg-purple-500 rounded-full" style={{ width: `${(b / 5) * 100}%` }} />
+                        <div className="w-20 h-1.5 bg-[#2a2d3e] rounded-full overflow-hidden">
+                          <div
+                            className={`h-full rounded-full ${bWins ? "bg-indigo-500" : "bg-gray-600"}`}
+                            style={{ width: `${(b / 5) * 100}%` }}
+                          />
                         </div>
-                        <span className="text-purple-300 font-bold text-lg">{b}</span>
+                        <span className={`text-base font-bold font-mono ${bWins ? "text-indigo-400" : "text-gray-500"}`}>{b}</span>
                       </div>
                     </div>
                   )
                 })}
-                <div className="grid grid-cols-[1fr_80px_1fr] gap-3 items-center pt-2 border-t border-[#2a2d3e]">
+                {/* Totals */}
+                <div className="grid grid-cols-[1fr_72px_1fr] gap-2 items-center pt-2 mt-1 border-t border-[#2a2d3e]">
                   <div className="text-right">
-                    <span className={`text-xl font-bold ${match.verdict === "A" ? "text-blue-300" : "text-gray-400"}`}>
+                    <span className={`text-xl font-bold font-mono ${match.verdict === "A" ? "text-emerald-400" : "text-gray-500"}`}>
                       {totalA}
                     </span>
                   </div>
                   <div className="text-center text-xs text-gray-500">Итого</div>
                   <div>
-                    <span className={`text-xl font-bold ${match.verdict === "B" ? "text-purple-300" : "text-gray-400"}`}>
+                    <span className={`text-xl font-bold font-mono ${match.verdict === "B" ? "text-indigo-400" : "text-gray-500"}`}>
                       {totalB}
                     </span>
                   </div>
@@ -159,113 +195,299 @@ function MatchDetail({ match, posts, onClose }: MatchDetailProps) {
             )}
           </div>
         )}
+
+        {/* Posts tab */}
+        {tab === "posts" && (
+          <div className="grid grid-cols-2 min-h-48 max-h-[60vh] overflow-y-auto divide-x divide-[#2a2d3e]">
+            {(["A", "B"] as const).map((side) => {
+              const model = side === "A" ? match.A : match.B
+              const post = posts[model] ?? "Пост недоступен"
+              const won = match.verdict === side
+              return (
+                <div key={side} className={`px-5 py-4 ${won ? "bg-emerald-950/10" : "bg-transparent"}`}>
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className={`text-xs font-semibold ${won ? "text-emerald-400" : "text-gray-500"}`}>
+                      Пост {side}
+                    </span>
+                    <span className="text-xs text-gray-600 truncate">{shortName(model)}</span>
+                    {won && <span className="text-xs text-emerald-500 ml-auto">✓ Победитель</span>}
+                  </div>
+                  <p className="text-gray-300 text-sm leading-relaxed whitespace-pre-wrap">{post}</p>
+                </div>
+              )
+            })}
+          </div>
+        )}
       </div>
     </div>
   )
 }
 
-function VerdictBadge({ verdict }: { verdict: string }) {
-  if (verdict === "A") return <span className="text-blue-400 font-bold text-xs">A ▶</span>
-  if (verdict === "B") return <span className="text-purple-400 font-bold text-xs">◀ B</span>
-  return <span className="text-gray-500 text-xs">=</span>
+// ── Match card (lolesports style) ──────────────────────────────────────────
+function MatchCard({
+  match,
+  topModels,
+  onClick,
+}: {
+  match: MatchLog
+  topModels: Set<string>
+  onClick: () => void
+}) {
+  const totalA = scoreTotal(match.scores_a as Record<string, number>)
+  const totalB = scoreTotal(match.scores_b as Record<string, number>)
+
+  return (
+    <button
+      onClick={onClick}
+      className="w-full text-left rounded-xl border border-[#2a2d3e] overflow-hidden hover:border-indigo-500/40 hover:shadow-lg hover:shadow-indigo-950/40 transition-all group bg-[#13151f]"
+    >
+      {/* Player A */}
+      <TeamRow
+        side="A"
+        model={match.A}
+        total={totalA}
+        ts={match.ts_a ?? match.elo_a}
+        verdict={match.verdict}
+        isTop={topModels.has(match.A)}
+      />
+      {/* Thin divider */}
+      <div className="h-px bg-[#2a2d3e] relative">
+        <div className="absolute inset-0 flex items-center justify-center">
+          <span className="bg-[#13151f] px-1.5 text-[10px] text-gray-600 group-hover:text-gray-500 transition-colors">
+            vs
+          </span>
+        </div>
+      </div>
+      {/* Player B */}
+      <TeamRow
+        side="B"
+        model={match.B}
+        total={totalB}
+        ts={match.ts_b ?? match.elo_b}
+        verdict={match.verdict}
+        isTop={topModels.has(match.B)}
+      />
+    </button>
+  )
 }
 
-export default function TournamentBracket({ log, posts, ranking }: BracketProps) {
+function TeamRow({
+  side,
+  model,
+  total,
+  ts,
+  verdict,
+  isTop,
+}: {
+  side: "A" | "B"
+  model: string
+  total: number | null
+  ts: number | undefined
+  verdict: string
+  isTop: boolean
+}) {
+  const won = verdict === side
+  const lost = verdict !== "DRAW" && verdict !== side
+
+  return (
+    <div
+      className={`flex items-center gap-2.5 px-3 py-2.5 relative ${
+        won
+          ? "bg-emerald-950/25"
+          : lost
+          ? "opacity-50"
+          : "bg-transparent"
+      }`}
+    >
+      {/* Left accent bar */}
+      <div
+        className={`w-0.5 h-7 rounded-full shrink-0 ${
+          won ? "bg-emerald-500" : lost ? "bg-[#2a2d3e]" : "bg-gray-700"
+        }`}
+      />
+      {/* Model name */}
+      <div className="flex-1 min-w-0">
+        <span
+          className={`text-sm font-medium truncate block ${
+            won ? "text-white" : lost ? "text-gray-500" : "text-gray-300"
+          } ${isTop ? "text-amber-300" : ""}`}
+        >
+          {shortName(model)}
+        </span>
+        {ts !== undefined && (
+          <span className="text-[10px] text-gray-600">TS {ts.toFixed(1)}</span>
+        )}
+      </div>
+      {/* Score */}
+      {total !== null && (
+        <span
+          className={`text-sm font-bold font-mono shrink-0 ${
+            won ? "text-emerald-400" : "text-gray-600"
+          }`}
+        >
+          {total}
+        </span>
+      )}
+      {won && (
+        <span className="text-emerald-500 text-xs shrink-0">✓</span>
+      )}
+    </div>
+  )
+}
+
+// ── Round commentary card ─────────────────────────────────────────────────
+function RoundComment({ comment }: { comment: string }) {
+  const [open, setOpen] = useState(false)
+  const preview = comment.slice(0, 120)
+  return (
+    <div className="mt-3 rounded-xl border border-[#2a2d3e] bg-[#0f1117] overflow-hidden">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-start gap-2 px-3 py-2.5 hover:bg-[#1a1d27] transition-colors text-left"
+      >
+        <span className="text-base shrink-0">🎙️</span>
+        <div className="flex-1 min-w-0">
+          <div className="text-xs text-indigo-400 font-medium mb-0.5">Комментатор</div>
+          <p className="text-gray-400 text-xs leading-relaxed">
+            {open ? comment : preview + (comment.length > 120 ? "…" : "")}
+          </p>
+        </div>
+        <span className="text-gray-600 text-xs shrink-0 mt-0.5">{open ? "↑" : "↓"}</span>
+      </button>
+    </div>
+  )
+}
+
+// ── Main bracket ───────────────────────────────────────────────────────────
+export default function TournamentBracket({ log, posts, ranking, roundComments }: BracketProps) {
   const [selected, setSelected] = useState<MatchLog | null>(null)
 
   const rounds = Array.from(new Set(log.map((m) => m.round))).sort((a, b) => a - b)
-
-  // Build rank map for coloring
-  const rankMap = Object.fromEntries(ranking.map((r) => [r.model, r.rank]))
   const topModels = new Set(ranking.slice(0, 3).map((r) => r.model))
+
+  // Standings snapshot after each round (cumulative W/L)
+  const standingsAfter: Record<number, Record<string, { W: number; L: number; D: number }>> = {}
+  const running: Record<string, { W: number; L: number; D: number }> = {}
+  for (const m of ranking) {
+    running[m.model] = { W: 0, L: 0, D: 0 }
+  }
+  for (const rnd of rounds) {
+    const rndMatches = log.filter((m) => m.round === rnd)
+    for (const m of rndMatches) {
+      if (!running[m.A]) running[m.A] = { W: 0, L: 0, D: 0 }
+      if (!running[m.B]) running[m.B] = { W: 0, L: 0, D: 0 }
+      if (m.verdict === "A") { running[m.A].W++; running[m.B].L++ }
+      else if (m.verdict === "B") { running[m.B].W++; running[m.A].L++ }
+      else { running[m.A].D++; running[m.B].D++ }
+    }
+    standingsAfter[rnd] = JSON.parse(JSON.stringify(running))
+  }
 
   return (
     <div>
-      {/* Round columns — horizontal scroll on mobile */}
+      {/* Legend */}
+      <div className="flex items-center gap-4 text-xs text-gray-500 mb-4">
+        <span className="flex items-center gap-1.5">
+          <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" />
+          Победитель матча
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="w-2 h-2 rounded-full bg-amber-400 inline-block" />
+          Топ-3 турнира
+        </span>
+        <span className="text-gray-600">· нажми карточку для деталей</span>
+      </div>
+
       <div className="overflow-x-auto pb-4">
-        <div className="flex gap-4 min-w-max">
+        <div className="flex gap-3 min-w-max">
           {rounds.map((rnd) => {
             const matches = log.filter((m) => m.round === rnd)
+            const comment = roundComments?.[String(rnd)]
             return (
-              <div key={rnd} className="w-72 shrink-0">
-                <div className="text-center mb-3">
-                  <span className="badge bg-indigo-600/20 text-indigo-300 text-sm font-semibold px-4 py-1">
+              <div key={rnd} className="w-64 shrink-0">
+                {/* Round header */}
+                <div className="flex items-center gap-2 mb-3 px-1">
+                  <div className="flex-1 h-px bg-[#2a2d3e]" />
+                  <span className="text-xs font-semibold text-indigo-400 uppercase tracking-widest whitespace-nowrap">
                     Раунд {rnd}
                   </span>
-                  <div className="text-gray-600 text-xs mt-1">{matches.length} матчей</div>
+                  <div className="flex-1 h-px bg-[#2a2d3e]" />
+                </div>
+                <div className="text-center text-[10px] text-gray-600 mb-3">
+                  {matches.length} матчей
                 </div>
 
+                {/* Match cards */}
                 <div className="space-y-2">
-                  {matches.map((m) => {
-                    const aWon = m.verdict === "A"
-                    const bWon = m.verdict === "B"
-                    return (
-                      <button
-                        key={m.match}
-                        onClick={() => setSelected(m)}
-                        className="w-full text-left card hover:border-indigo-500/50 hover:bg-[#1e2130] transition-all p-3 group"
-                      >
-                        {/* Model A */}
-                        <div className={`flex items-center gap-2 mb-1.5 ${aWon ? "opacity-100" : "opacity-50"}`}>
-                          <span className={`w-5 h-5 rounded text-xs flex items-center justify-center font-bold shrink-0 ${
-                            aWon ? "bg-blue-600 text-white" : "bg-[#2a2d3e] text-gray-500"
-                          }`}>A</span>
-                          <span className={`text-sm font-medium truncate flex-1 ${
-                            topModels.has(m.A) ? "text-amber-300" : "text-gray-300"
-                          }`}>
-                            {shortName(m.A)}
-                          </span>
-                          {m.scores_a && (
-                            <span className="text-xs text-gray-500 font-mono shrink-0">
-                              {Object.values(m.scores_a as Record<string, number>).reduce((a, b) => a + b, 0)}
-                            </span>
-                          )}
-                        </div>
-
-                        {/* VS line */}
-                        <div className="flex items-center gap-2 my-1.5">
-                          <div className="flex-1 h-px bg-[#2a2d3e]" />
-                          <VerdictBadge verdict={m.verdict} />
-                          <div className="flex-1 h-px bg-[#2a2d3e]" />
-                        </div>
-
-                        {/* Model B */}
-                        <div className={`flex items-center gap-2 mt-1.5 ${bWon ? "opacity-100" : "opacity-50"}`}>
-                          <span className={`w-5 h-5 rounded text-xs flex items-center justify-center font-bold shrink-0 ${
-                            bWon ? "bg-purple-600 text-white" : "bg-[#2a2d3e] text-gray-500"
-                          }`}>B</span>
-                          <span className={`text-sm font-medium truncate flex-1 ${
-                            topModels.has(m.B) ? "text-amber-300" : "text-gray-300"
-                          }`}>
-                            {shortName(m.B)}
-                          </span>
-                          {m.scores_b && (
-                            <span className="text-xs text-gray-500 font-mono shrink-0">
-                              {Object.values(m.scores_b as Record<string, number>).reduce((a, b) => a + b, 0)}
-                            </span>
-                          )}
-                        </div>
-
-                        <div className="text-xs text-indigo-400/0 group-hover:text-indigo-400/60 text-center mt-2 transition-colors">
-                          нажми для деталей →
-                        </div>
-                      </button>
-                    )
-                  })}
+                  {matches.map((m) => (
+                    <MatchCard
+                      key={m.match}
+                      match={m}
+                      topModels={topModels}
+                      onClick={() => setSelected(m)}
+                    />
+                  ))}
                 </div>
+
+                {/* Round commentary */}
+                {comment && <RoundComment comment={comment} />}
               </div>
             )
           })}
+
+          {/* Final standings column */}
+          <div className="w-56 shrink-0">
+            <div className="flex items-center gap-2 mb-3 px-1">
+              <div className="flex-1 h-px bg-[#2a2d3e]" />
+              <span className="text-xs font-semibold text-amber-400 uppercase tracking-widest whitespace-nowrap">
+                Итог
+              </span>
+              <div className="flex-1 h-px bg-[#2a2d3e]" />
+            </div>
+            <div className="text-center text-[10px] text-gray-600 mb-3">финальный рейтинг</div>
+            <div className="space-y-1.5">
+              {ranking.slice(0, 10).map((r) => {
+                const medal = r.rank === 1 ? "🥇" : r.rank === 2 ? "🥈" : r.rank === 3 ? "🥉" : null
+                const score = r.ts_score ?? r.elo
+                return (
+                  <div
+                    key={r.model}
+                    className={`rounded-lg border px-3 py-2 flex items-center gap-2 ${
+                      r.rank <= 3
+                        ? "border-amber-600/30 bg-amber-950/15"
+                        : "border-[#2a2d3e] bg-[#13151f]"
+                    }`}
+                  >
+                    <span className="text-sm w-5 shrink-0 text-center">
+                      {medal ?? <span className="text-gray-600 text-xs">{r.rank}</span>}
+                    </span>
+                    <span
+                      className={`text-xs font-medium truncate flex-1 ${
+                        r.rank <= 3 ? "text-amber-200" : "text-gray-400"
+                      }`}
+                    >
+                      {shortName(r.model)}
+                    </span>
+                    {score !== undefined && (
+                      <span className="text-xs font-mono text-gray-500 shrink-0">
+                        {score.toFixed(1)}
+                      </span>
+                    )}
+                  </div>
+                )
+              })}
+              {ranking.length > 10 && (
+                <div className="text-center text-xs text-gray-600 pt-1">
+                  +{ranking.length - 10} ещё
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* Detail modal */}
       {selected && (
-        <MatchDetail
-          match={selected}
-          posts={posts}
-          onClose={() => setSelected(null)}
-        />
+        <MatchModal match={selected} posts={posts} onClose={() => setSelected(null)} />
       )}
     </div>
   )
