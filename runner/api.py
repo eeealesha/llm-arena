@@ -298,6 +298,17 @@ def list_tournaments():
             continue
     return jsonify(results)
 
+@app.route("/tournament/<tournament_id>")
+def get_tournament(tournament_id: str):
+    f = DATA_DIR / "tournaments" / f"{tournament_id}.json"
+    if not f.exists():
+        return jsonify({"error": "not found"}), 404
+    try:
+        with open(f) as fp:
+            return jsonify(json.load(fp))
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 @app.route("/events/history")
 def events_history():
     return jsonify(_events[-500:])

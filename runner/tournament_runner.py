@@ -196,7 +196,7 @@ def generate_posts(models: list, task: str) -> dict:
         if reply:
             posts[model] = reply
             emit({"type": "post_done", "model": model, "words": len(reply.split()),
-                  "time": elapsed})
+                  "time": elapsed, "text": reply})
         else:
             emit({"type": "post_failed", "model": model})
         time.sleep(0.3)

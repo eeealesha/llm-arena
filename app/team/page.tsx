@@ -7,7 +7,7 @@ import { modelSlug } from "@/lib/data"
 export default function TeamPage() {
   const tournaments = loadTournaments()
   // Use the most recent tournament that has criteria_avgs
-  const t = [...tournaments].reverse().find((t) => t.criteria_avgs && t.ranking.length > 0)
+  const t = tournaments.find((t) => t.criteria_avgs && t.ranking.length > 0)
 
   if (!t || !t.criteria_avgs) {
     return (

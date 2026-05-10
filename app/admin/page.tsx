@@ -1,73 +1,26 @@
 "use client"
 import { useState, useEffect } from "react"
 import TournamentLive from "@/components/tournament-live"
+import ArticleForm from "@/components/article-form"
 
 interface ModelInfo { name: string; size_gb: number }
 interface TournamentSummary { id: string; run_at: string; task: string; judge: string; winner: string | null; models: number }
 
-function ArticleForm({ models }: { models: ModelInfo[] }) {
-  const [topic, setTopic]     = useState("")
-  const [style, setStyle]     = useState("storyteller")
-  const [busy, setBusy]       = useState(false)
-  const [result, setResult]   = useState<string | null>(null)
-
-  async function submit() {
-    if (!topic.trim() || busy) return
-    setBusy(true)
-    setResult(null)
-    try {
-      const r = await fetch("/api/runner/article", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ topic: topic.trim(), style }),
-      })
-      const d = await r.json()
-      if (d.ok) setResult("Статья запущена — следи за стримом")
-      else setResult(`Ошибка: ${d.error}`)
-    } catch (e) {
-      setResult(`Ошибка: ${e}`)
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <div className="card space-y-4">
-      <h3 className="font-semibold text-white">Написать статью</h3>
-      <div className="space-y-2">
-        <input
-          value={topic} onChange={e => setTopic(e.target.value)}
-          placeholder="Тема статьи..."
-          className="w-full bg-[#0f1117] border border-[#2a2d3e] rounded-lg px-3 py-2 text-sm text-white placeholder:text-gray-600 focus:outline-none focus:border-indigo-500"
-        />
-        <select
-          value={style} onChange={e => setStyle(e.target.value)}
-          className="w-full bg-[#0f1117] border border-[#2a2d3e] rounded-lg px-3 py-2 text-sm text-gray-300"
-        >
-          <option value="storyteller">✍️ Сторителлер</option>
-          <option value="analyst">🔬 Аналитик</option>
-        </select>
-      </div>
-      <button
-        onClick={submit}
-        disabled={busy || !topic.trim()}
-        className="w-full py-2 px-4 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-      >
-        {busy ? "Запускаю..." : "Написать статью"}
-      </button>
-      {result && <p className="text-sm text-gray-400">{result}</p>}
-    </div>
-  )
-}
-
 function TournamentForm({ models }: { models: ModelInfo[] }) {
-  const [task, setTask]             = useState("")
-  const [judge, setJudge]           = useState("")
+  const [task, setTask]               = useState("")
+  const [judge, setJudge]             = useState("")
   const [commentator, setCommentator] = useState("")
-  const [maxCont, setMaxCont]       = useState("")
-  const [rounds, setRounds]         = useState("")
-  const [busy, setBusy]             = useState(false)
-  const [result, setResult]         = useState<string | null>(null)
+  const [maxCont, setMaxCont]         = useState("")
+  const [rounds, setRounds]           = useState("")
+  const [busy, setBusy]               = useState(false)
+  const [result, setResult]           = useState<string | null>(null)
+
+  // Auto-select first available model as default commentator
+  useEffect(() => {
+    if (models.length > 0 && !commentator) {
+      setCommentator(models[0].name)
+    }
+  }, [models])
 
   async function submit() {
     if (!task.trim() || busy) return
@@ -75,10 +28,10 @@ function TournamentForm({ models }: { models: ModelInfo[] }) {
     setResult(null)
     try {
       const body: Record<string, unknown> = { task: task.trim() }
-      if (judge)      body.judge = judge
+      if (judge)       body.judge = judge
       if (commentator) body.commentator = commentator
-      if (maxCont)    body.max_contestants = parseInt(maxCont)
-      if (rounds)     body.swiss_rounds = parseInt(rounds)
+      if (maxCont)     body.max_contestants = parseInt(maxCont)
+      if (rounds)      body.swiss_rounds = parseInt(rounds)
 
       const r = await fetch("/api/runner/run", {
         method: "POST",
@@ -166,6 +119,12 @@ export default function AdminPage() {
     }, 3000)
   }
 
+  const TABS = [
+    { key: "live",    label: "⚡ Прямой эфир" },
+    { key: "history", label: "📋 История" },
+    { key: "article", label: "✍️ Статья" },
+  ] as const
+
   return (
     <div className="max-w-5xl mx-auto space-y-6">
       <div className="flex items-center justify-between">
@@ -188,12 +147,10 @@ export default function AdminPage() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left: forms */}
+        {/* Left: tournament form + model list */}
         <div className="space-y-4">
           <TournamentForm models={models} />
-          <ArticleForm models={models} />
 
-          {/* Model list */}
           {models.length > 0 && (
             <div className="card">
               <div className="text-xs text-gray-500 uppercase tracking-wide mb-3">Доступные модели</div>
@@ -209,18 +166,18 @@ export default function AdminPage() {
           )}
         </div>
 
-        {/* Right: live view + history */}
+        {/* Right: live / history / article tabs */}
         <div className="lg:col-span-2 space-y-4">
           <div className="flex gap-1 border-b border-[#2a2d3e]">
-            {(["live", "history"] as const).map(t => (
+            {TABS.map(t => (
               <button
-                key={t}
-                onClick={() => setTab(t)}
+                key={t.key}
+                onClick={() => setTab(t.key)}
                 className={`px-4 py-2 text-sm font-medium transition-colors ${
-                  tab === t ? "text-white border-b-2 border-indigo-400 -mb-px" : "text-gray-500 hover:text-gray-300"
+                  tab === t.key ? "text-white border-b-2 border-indigo-400 -mb-px" : "text-gray-500 hover:text-gray-300"
                 }`}
               >
-                {t === "live" ? "⚡ Прямой эфир" : "📋 История"}
+                {t.label}
               </button>
             ))}
           </div>
@@ -256,6 +213,12 @@ export default function AdminPage() {
                   </a>
                 ))
               )}
+            </div>
+          )}
+
+          {tab === "article" && (
+            <div className="card">
+              <ArticleForm models={models} />
             </div>
           )}
         </div>
