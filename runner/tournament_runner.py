@@ -26,6 +26,21 @@ MODELS_CACHE = DATA_DIR / "models.json"
 REQUEST_TIMEOUT = int(os.environ.get("REQUEST_TIMEOUT", "180"))
 JUDGE_TIMEOUT   = int(os.environ.get("JUDGE_TIMEOUT", "240"))
 
+# Cyrillic → Latin transliteration for SEO-friendly URL slugs.
+_TRANSLIT = {
+    "а":"a", "б":"b", "в":"v", "г":"g", "д":"d", "е":"e", "ё":"yo",
+    "ж":"zh", "з":"z", "и":"i", "й":"y", "к":"k", "л":"l", "м":"m",
+    "н":"n", "о":"o", "п":"p", "р":"r", "с":"s", "т":"t", "у":"u",
+    "ф":"f", "х":"h", "ц":"ts", "ч":"ch", "ш":"sh", "щ":"sch",
+    "ъ":"", "ы":"y", "ь":"", "э":"e", "ю":"yu", "я":"ya",
+}
+
+def slugify(s: str) -> str:
+    out = "".join(_TRANSLIT.get(c, c) for c in s.lower())
+    out = re.sub(r"[^a-z0-9_\-]+", "-", out)
+    out = re.sub(r"-+", "-", out).strip("-")
+    return out
+
 # ── Event emitter ─────────────────────────────────────────
 def emit(event: dict):
     print(json.dumps(event, ensure_ascii=False), flush=True)
@@ -618,9 +633,8 @@ def write_article(topic: str, roles: dict, author_style: str = "storyteller",
         emit({"type": "article_step_done", "step": "chief_editor", "model": chief_model,
               "words": len(final.split()), "time": t})
 
-    # Save
-    slug = re.sub(r"[^a-z0-9а-яё\-]", "-", topic.lower().replace(" ", "-"))[:60]
-    slug = re.sub(r"-+", "-", slug).strip("-")
+    # Save — SEO-friendly Latin slug
+    slug = slugify(topic)[:60].strip("-")
     article_id = f"{datetime.now().strftime('%Y%m%d')}_{slug}"
 
     article = {

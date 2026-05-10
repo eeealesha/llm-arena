@@ -30,6 +30,8 @@ export async function generateMetadata({ params }: { params: { id: string } }): 
   }
 }
 
+const SITE_URL = "https://onlyanalyst.ru"
+
 export default function TournamentPage({ params }: { params: { id: string } }) {
   const t = getTournament(params.id)
   if (!t) notFound()
@@ -57,6 +59,31 @@ export default function TournamentPage({ params }: { params: { id: string } }) {
   return (
     <div className="space-y-0">
       <TournamentNav available={available} />
+
+      {/* JSON-LD: a SportsEvent + ItemList of contestants for rich-result eligibility */}
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify({
+            "@context": "https://schema.org",
+            "@type": "SportsEvent",
+            "name": `LLM Tournament — ${t.task.slice(0, 80)}`,
+            "startDate": t.run_at,
+            "eventStatus": "https://schema.org/EventCompleted",
+            "eventAttendanceMode": "https://schema.org/OnlineEventAttendanceMode",
+            "location": { "@type": "VirtualLocation", "url": `${SITE_URL}/tournament/${t.id}` },
+            "url": `${SITE_URL}/tournament/${t.id}`,
+            "description": t.task.slice(0, 280),
+            "organizer": { "@type": "Organization", "name": "LLM Arena", "url": SITE_URL },
+            "competitor": t.ranking.slice(0, 10).map((r) => ({
+              "@type": "SoftwareApplication",
+              "name": r.model,
+              "applicationCategory": "LargeLanguageModel",
+              "position": r.rank,
+            })),
+          }),
+        }}
+      />
 
       {/* ── OVERVIEW ───────────────────────────────────────────── */}
       <section id="overview" className="scroll-mt-28 pb-8">

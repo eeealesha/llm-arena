@@ -1,7 +1,11 @@
 import { notFound } from "next/navigation"
 import { getArticle, ROLE_LABELS } from "@/lib/articles"
 import ShareButton from "@/components/share-button"
+import ReactMarkdown from "react-markdown"
+import remarkGfm from "remark-gfm"
 import type { Metadata } from "next"
+
+const SITE_URL = "https://onlyanalyst.ru"
 
 export const dynamic = "force-dynamic"
 
@@ -93,14 +97,43 @@ export default function ArticlePage({ params }: { params: { slug: string } }) {
 
       {/* Article text */}
       <article className="card">
-        <div className="prose prose-invert prose-sm max-w-none">
-          {article.final_text.split("\n\n").map((para, i) => (
-            <p key={i} className="text-gray-200 leading-relaxed mb-4 last:mb-0 whitespace-pre-wrap">
-              {para}
-            </p>
-          ))}
+        <div className="prose prose-invert prose-sm sm:prose-base max-w-none prose-headings:scroll-mt-24 prose-pre:bg-[#0a0c12] prose-pre:border prose-pre:border-[#2a2d3e] prose-code:before:hidden prose-code:after:hidden">
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+            {stripDuplicateTitle(article.final_text, article.topic)}
+          </ReactMarkdown>
         </div>
       </article>
+
+      {/* JSON-LD structured data for SEO */}
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify({
+            "@context": "https://schema.org",
+            "@type": "BlogPosting",
+            "headline": article.topic,
+            "datePublished": article.published_at,
+            "dateModified": article.published_at,
+            "inLanguage": "ru-RU",
+            "author": [
+              { "@type": "Person", "name": "Алексей Гаврилов" },
+              ...Object.values(article.roles).map((m) => ({
+                "@type": "SoftwareApplication",
+                "name": m,
+                "applicationCategory": "LargeLanguageModel",
+              })),
+            ],
+            "publisher": {
+              "@type": "Organization",
+              "name": "LLM Arena",
+              "url": SITE_URL,
+            },
+            "mainEntityOfPage": { "@type": "WebPage", "@id": `${SITE_URL}/blog/${article.id}` },
+            "url": `${SITE_URL}/blog/${article.id}`,
+            "description": article.final_text.replace(/[#>*_`\-]{1,3}/g, "").slice(0, 280).trim(),
+          }),
+        }}
+      />
 
       {/* History (collapsible) */}
       {article.history.length > 1 && (
@@ -144,6 +177,24 @@ function BylineCard({ icon, role, model }: { icon: string; role: string; model: 
 
 function shortModel(name: string) {
   return name.split(":")[0].split("/").pop() ?? name
+}
+
+// LLM authors often duplicate the topic as the first H1.
+// If the first non-empty line is a heading roughly matching the topic, drop it.
+function stripDuplicateTitle(text: string, topic: string): string {
+  const lines = text.split("\n")
+  let i = 0
+  while (i < lines.length && !lines[i].trim()) i++
+  if (i >= lines.length) return text
+  const first = lines[i].trim()
+  if (/^#{1,3}\s/.test(first)) {
+    const heading = first.replace(/^#{1,3}\s+/, "").replace(/\*+/g, "").trim().toLowerCase()
+    const tp = topic.toLowerCase()
+    if (heading === tp || heading.includes(tp) || tp.includes(heading.slice(0, 20))) {
+      return lines.slice(i + 1).join("\n").trimStart()
+    }
+  }
+  return text
 }
 
 function historyLabel(role: string) {

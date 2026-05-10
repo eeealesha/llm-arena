@@ -1,5 +1,6 @@
 import fs from "fs"
 import path from "path"
+import { slugify } from "./translit"
 
 export interface ArticleRole {
   planner: string
@@ -40,9 +41,9 @@ function buildSlugMap(): Map<string, string> {
   return map
 }
 
-// Convert any string to a URL-safe ASCII slug
+// Convert any string to a URL-safe ASCII slug (Cyrillic → Latin transliteration)
 export function toSlug(s: string): string {
-  return encodeURIComponent(s).replace(/%../g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "")
+  return slugify(s)
 }
 
 export function loadArticles(): Article[] {
