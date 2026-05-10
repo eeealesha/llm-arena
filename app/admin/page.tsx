@@ -1,10 +1,14 @@
 "use client"
 import { useState, useEffect } from "react"
+import Link from "next/link"
 import TournamentLive from "@/components/tournament-live"
 import ArticleForm from "@/components/article-form"
 
 interface ModelInfo { name: string; size_gb: number }
 interface TournamentSummary { id: string; run_at: string; task: string; judge: string; winner: string | null; models: number }
+interface ArticleSummary { id: string; topic: string; published_at: string; author_style: string; roles: Record<string, string> }
+
+function shortName(m: string) { return m.split(":")[0].split("/").pop() ?? m }
 
 function TournamentForm({ models }: { models: ModelInfo[] }) {
   const [task, setTask]               = useState("")
@@ -15,11 +19,8 @@ function TournamentForm({ models }: { models: ModelInfo[] }) {
   const [busy, setBusy]               = useState(false)
   const [result, setResult]           = useState<string | null>(null)
 
-  // Auto-select first available model as default commentator
   useEffect(() => {
-    if (models.length > 0 && !commentator) {
-      setCommentator(models[0].name)
-    }
+    if (models.length > 0 && !commentator) setCommentator(models[0].name)
   }, [models])
 
   async function submit() {
@@ -66,14 +67,14 @@ function TournamentForm({ models }: { models: ModelInfo[] }) {
             className="bg-[#0f1117] border border-[#2a2d3e] rounded-lg px-3 py-2 text-sm text-gray-300"
           >
             <option value="">Судья — авто</option>
-            {modelNames.map(m => <option key={m} value={m}>{m.split(":")[0]}</option>)}
+            {modelNames.map(m => <option key={m} value={m}>{shortName(m)}</option>)}
           </select>
           <select
             value={commentator} onChange={e => setCommentator(e.target.value)}
             className="bg-[#0f1117] border border-[#2a2d3e] rounded-lg px-3 py-2 text-sm text-gray-300"
           >
             <option value="">Комментатор — нет</option>
-            {modelNames.map(m => <option key={m} value={m}>{m.split(":")[0]}</option>)}
+            {modelNames.map(m => <option key={m} value={m}>{shortName(m)}</option>)}
           </select>
           <input
             type="number" value={maxCont} onChange={e => setMaxCont(e.target.value)}
@@ -99,15 +100,83 @@ function TournamentForm({ models }: { models: ModelInfo[] }) {
   )
 }
 
+function TournamentHistory({ tournaments }: { tournaments: TournamentSummary[] }) {
+  if (tournaments.length === 0) {
+    return (
+      <div className="text-center py-12 text-gray-600">
+        <div className="text-3xl mb-2">📋</div>
+        <div>Турниров ещё нет</div>
+      </div>
+    )
+  }
+  return (
+    <div className="space-y-3">
+      {tournaments.map(t => (
+        <Link key={t.id} href={`/tournament/${t.id}`}
+              className="block card hover:border-indigo-700/50 transition-colors group">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex-1 min-w-0">
+              <p className="text-sm text-gray-200 leading-snug line-clamp-2">{t.task}</p>
+              <div className="flex items-center gap-3 mt-2 text-xs text-gray-500">
+                <span>{new Date(t.run_at).toLocaleDateString("ru-RU")}</span>
+                <span>судья: {shortName(t.judge ?? "")}</span>
+                <span>{t.models} участников</span>
+              </div>
+            </div>
+            {t.winner && (
+              <span className="shrink-0 text-xs text-emerald-400 font-medium">
+                🥇 {shortName(t.winner)}
+              </span>
+            )}
+          </div>
+        </Link>
+      ))}
+    </div>
+  )
+}
+
+function ArticleHistory({ articles }: { articles: ArticleSummary[] }) {
+  if (articles.length === 0) {
+    return (
+      <div className="text-center py-12 text-gray-600">
+        <div className="text-3xl mb-2">📝</div>
+        <div>Статей ещё нет</div>
+      </div>
+    )
+  }
+  return (
+    <div className="space-y-3">
+      {articles.map(a => (
+        <Link key={a.id} href={`/blog/${a.id}`}
+              className="block card hover:border-indigo-700/50 transition-colors group">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex-1 min-w-0">
+              <p className="text-sm text-gray-200 leading-snug line-clamp-2 font-medium">{a.topic}</p>
+              <div className="flex items-center gap-3 mt-2 text-xs text-gray-500">
+                <span>{new Date(a.published_at).toLocaleDateString("ru-RU")}</span>
+                <span>{a.author_style === "storyteller" ? "✍️ сторителлер" : "🔬 аналитик"}</span>
+                <span className="truncate">автор: {shortName(a.roles?.author ?? "")}</span>
+              </div>
+            </div>
+          </div>
+        </Link>
+      ))}
+    </div>
+  )
+}
+
 export default function AdminPage() {
   const [models, setModels]           = useState<ModelInfo[]>([])
   const [tournaments, setTournaments] = useState<TournamentSummary[]>([])
-  const [tab, setTab]                 = useState<"live" | "history" | "article">("live")
+  const [articles, setArticles]       = useState<ArticleSummary[]>([])
+  const [mode, setMode]               = useState<"tournament" | "article">("tournament")
+  const [view, setView]               = useState<"live" | "history">("live")
   const [refreshing, setRefreshing]   = useState(false)
 
   useEffect(() => {
     fetch("/api/runner/models").then(r => r.json()).then(d => setModels(d.available || [])).catch(() => {})
     fetch("/api/runner/tournaments").then(r => r.json()).then(setTournaments).catch(() => {})
+    fetch("/api/articles").then(r => r.json()).then(setArticles).catch(() => {})
   }, [])
 
   async function refreshModels() {
@@ -115,7 +184,6 @@ export default function AdminPage() {
     try {
       const r = await fetch("/api/runner/models/refresh", { method: "POST" })
       if (!r.ok) { setRefreshing(false); return }
-      // Poll status until subprocess finishes, then reload model list
       const poll = setInterval(async () => {
         try {
           const s = await fetch("/api/runner/status").then(r => r.json())
@@ -134,18 +202,12 @@ export default function AdminPage() {
     }
   }
 
-  const TABS = [
-    { key: "live",    label: "⚡ Прямой эфир" },
-    { key: "history", label: "📋 История" },
-    { key: "article", label: "✍️ Статья" },
-  ] as const
-
   return (
     <div className="max-w-5xl mx-auto space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold text-white">Панель управления</h1>
-          <p className="text-gray-400 text-sm mt-1">Запуск турниров и генерация статей прямо с сервера</p>
+          <p className="text-gray-400 text-sm mt-1">Запуск турниров и генерация статей</p>
         </div>
         <div className="flex items-center gap-2 text-sm">
           <span className={`px-2 py-1 rounded-full text-xs ${models.length > 0 ? "bg-emerald-900/30 text-emerald-400" : "bg-rose-900/30 text-rose-400"}`}>
@@ -161,10 +223,37 @@ export default function AdminPage() {
         </div>
       </div>
 
+      {/* Top-level mode toggle */}
+      <div className="inline-flex p-1 rounded-xl bg-[#13151f] border border-[#2a2d3e]">
+        <button
+          onClick={() => setMode("tournament")}
+          className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+            mode === "tournament" ? "bg-emerald-700 text-white" : "text-gray-400 hover:text-gray-200"
+          }`}
+        >
+          ⚔️ Турниры
+        </button>
+        <button
+          onClick={() => setMode("article")}
+          className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+            mode === "article" ? "bg-indigo-600 text-white" : "text-gray-400 hover:text-gray-200"
+          }`}
+        >
+          ✍️ Статьи
+        </button>
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left: tournament form + model list */}
+        {/* Left: form for selected mode */}
         <div className="space-y-4">
-          <TournamentForm models={models} />
+          {mode === "tournament" ? (
+            <TournamentForm models={models} />
+          ) : (
+            <div className="card">
+              <h3 className="font-semibold text-white mb-4">Написать статью</h3>
+              <ArticleForm models={models} />
+            </div>
+          )}
 
           {models.length > 0 && (
             <div className="card">
@@ -172,7 +261,7 @@ export default function AdminPage() {
               <div className="space-y-1.5 max-h-64 overflow-y-auto">
                 {models.map(m => (
                   <div key={m.name} className="flex items-center justify-between text-xs text-gray-400">
-                    <span className="truncate">{m.name.split(":")[0]}</span>
+                    <span className="truncate">{shortName(m.name)}</span>
                     <span className="text-gray-600 shrink-0 ml-2">{m.size_gb > 0 ? `${m.size_gb}GB` : ""}</span>
                   </div>
                 ))}
@@ -181,61 +270,30 @@ export default function AdminPage() {
           )}
         </div>
 
-        {/* Right: live / history / article tabs */}
+        {/* Right: live / history */}
         <div className="lg:col-span-2 space-y-4">
           <div className="flex gap-1 border-b border-[#2a2d3e]">
-            {TABS.map(t => (
-              <button
-                key={t.key}
-                onClick={() => setTab(t.key)}
-                className={`px-4 py-2 text-sm font-medium transition-colors ${
-                  tab === t.key ? "text-white border-b-2 border-indigo-400 -mb-px" : "text-gray-500 hover:text-gray-300"
-                }`}
-              >
-                {t.label}
-              </button>
-            ))}
+            <button
+              onClick={() => setView("live")}
+              className={`px-4 py-2 text-sm font-medium transition-colors ${
+                view === "live" ? "text-white border-b-2 border-indigo-400 -mb-px" : "text-gray-500 hover:text-gray-300"
+              }`}
+            >
+              ⚡ Прямой эфир
+            </button>
+            <button
+              onClick={() => setView("history")}
+              className={`px-4 py-2 text-sm font-medium transition-colors ${
+                view === "history" ? "text-white border-b-2 border-indigo-400 -mb-px" : "text-gray-500 hover:text-gray-300"
+              }`}
+            >
+              📋 История {mode === "tournament" ? "турниров" : "статей"}
+            </button>
           </div>
 
-          {tab === "live" && <TournamentLive />}
-
-          {tab === "history" && (
-            <div className="space-y-3">
-              {tournaments.length === 0 ? (
-                <div className="text-center py-12 text-gray-600">
-                  <div className="text-3xl mb-2">📋</div>
-                  <div>Турниров ещё нет</div>
-                </div>
-              ) : (
-                tournaments.map(t => (
-                  <a key={t.id} href={`/tournament/${t.id}`}
-                     className="block card hover:border-indigo-700/50 transition-colors group">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm text-gray-200 leading-snug line-clamp-2">{t.task}</p>
-                        <div className="flex items-center gap-3 mt-2 text-xs text-gray-500">
-                          <span>{new Date(t.run_at).toLocaleDateString("ru-RU")}</span>
-                          <span>судья: {t.judge?.split(":")[0]}</span>
-                          <span>{t.models} участников</span>
-                        </div>
-                      </div>
-                      {t.winner && (
-                        <span className="shrink-0 text-xs text-emerald-400 font-medium">
-                          🥇 {t.winner.split(":")[0].split("/").pop()}
-                        </span>
-                      )}
-                    </div>
-                  </a>
-                ))
-              )}
-            </div>
-          )}
-
-          {tab === "article" && (
-            <div className="card">
-              <ArticleForm models={models} />
-            </div>
-          )}
+          {view === "live" && <TournamentLive />}
+          {view === "history" && mode === "tournament" && <TournamentHistory tournaments={tournaments} />}
+          {view === "history" && mode === "article"    && <ArticleHistory articles={articles} />}
         </div>
       </div>
     </div>

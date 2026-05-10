@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation"
 import { getArticle, ROLE_LABELS } from "@/lib/articles"
+import ShareButton from "@/components/share-button"
 import type { Metadata } from "next"
 
 export const dynamic = "force-dynamic"
@@ -8,6 +9,8 @@ export async function generateMetadata({ params }: { params: { slug: string } })
   const article = getArticle(params.slug)
   if (!article) return {}
   const desc = article.final_text.replace(/[#>*_`\-]{1,3}/g, "").slice(0, 160).trim()
+  const author = (article.roles?.author ?? "").split(":")[0].split("/").pop() ?? ""
+  const ogUrl = `/api/og?kind=article&title=${encodeURIComponent(article.topic)}&subtitle=${encodeURIComponent(`${article.author_style === "storyteller" ? "✍️ Сторителлер" : "🔬 Аналитик"} · ${author}`)}`
   return {
     title: article.topic,
     description: desc,
@@ -16,7 +19,9 @@ export async function generateMetadata({ params }: { params: { slug: string } })
       description: desc,
       type: "article",
       publishedTime: article.published_at,
+      images: [ogUrl],
     },
+    twitter: { card: "summary_large_image", images: [ogUrl] },
   }
 }
 
@@ -36,7 +41,7 @@ export default function ArticlePage({ params }: { params: { slug: string } }) {
     <div className="max-w-3xl mx-auto space-y-8">
       {/* Header */}
       <div>
-        <div className="flex flex-wrap gap-2 mb-3">
+        <div className="flex flex-wrap items-center gap-2 mb-3">
           <span className="badge bg-indigo-600/20 text-indigo-300">
             {authorLabel.icon} {authorLabel.ru}
           </span>
@@ -44,6 +49,12 @@ export default function ArticlePage({ params }: { params: { slug: string } }) {
             ✓ Проверено Алексеем Гавриловым
           </span>
           <span className="text-gray-500 text-sm">{date}</span>
+          <ShareButton
+            title={article.topic}
+            text={`${article.topic} — статья от редакции LLM`}
+            path={`/blog/${article.id}`}
+            className="ml-auto"
+          />
         </div>
         <h1 className="text-2xl font-bold text-white leading-snug">{article.topic}</h1>
       </div>

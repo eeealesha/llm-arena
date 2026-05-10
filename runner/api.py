@@ -231,10 +231,13 @@ def run_article():
     style      = body.get("style", "storyteller")
     iterations = body.get("iterations", 2)
     t_file     = body.get("tournament_file")
+    roles      = body.get("roles")
 
     cmd = [sys.executable, str(RUNNER_SCRIPT), "article",
            "--topic", topic, "--style", style, "--iterations", str(iterations)]
-    if t_file:
+    if roles:
+        cmd += ["--roles-json", json.dumps(roles, ensure_ascii=False)]
+    elif t_file:
         cmd += ["--tournament-file", t_file]
 
     env = {

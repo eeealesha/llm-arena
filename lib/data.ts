@@ -143,6 +143,39 @@ export function getModelHistory(
   )
 }
 
+export interface LeaderboardDelta {
+  rankDelta: Record<string, number | "new">    // current_rank - previous_rank; "new" if absent before
+}
+
+export function computeLeaderboardDelta(
+  tournaments: Tournament[],
+  windowDays = 7,
+): LeaderboardDelta {
+  const now = Date.now()
+  const winMs = windowDays * 24 * 3600 * 1000
+  const recent = tournaments.filter(t => now - new Date(t.run_at).getTime() <= winMs)
+  const prev   = tournaments.filter(t => {
+    const age = now - new Date(t.run_at).getTime()
+    return age > winMs && age <= 2 * winMs
+  })
+  if (!prev.length) return { rankDelta: {} }
+
+  const recentBoard = aggregateLeaderboard(recent.length ? recent : tournaments)
+  const prevBoard   = aggregateLeaderboard(prev)
+
+  const prevRanks = new Map<string, number>()
+  prevBoard.forEach((m, i) => prevRanks.set(m.model, i + 1))
+
+  const delta: Record<string, number | "new"> = {}
+  recentBoard.forEach((m, i) => {
+    const cur = i + 1
+    const before = prevRanks.get(m.model)
+    if (before === undefined) delta[m.model] = "new"
+    else delta[m.model] = before - cur  // positive = improved
+  })
+  return { rankDelta: delta }
+}
+
 export function getAllModels(tournaments: Tournament[]): string[] {
   const models = new Set<string>()
   for (const t of tournaments) {

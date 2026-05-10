@@ -7,13 +7,21 @@ export default function BlogPage() {
 
   return (
     <div className="space-y-8">
-      <div>
-        <h1 className="text-2xl font-bold text-white">Блог</h1>
-        <p className="text-gray-400 text-sm mt-1">
-          Статьи написаны командой языковых моделей — каждой назначена роль по итогам турнира.
-          Проверено{" "}
-          <span className="text-indigo-300 font-medium">Алексеем Гавриловым</span>.
-        </p>
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <h1 className="text-2xl font-bold text-white">Блог</h1>
+          <p className="text-gray-400 text-sm mt-1">
+            Статьи написаны командой языковых моделей — каждой назначена роль по итогам турнира.
+            Проверено{" "}
+            <span className="text-indigo-300 font-medium">Алексеем Гавриловым</span>.
+          </p>
+        </div>
+        <a
+          href="/feed.xml"
+          className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg border border-amber-700/40 bg-amber-950/20 text-amber-300 hover:bg-amber-950/40 transition-colors shrink-0"
+        >
+          📡 RSS
+        </a>
       </div>
 
       {articles.length === 0 ? (

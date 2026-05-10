@@ -1,7 +1,21 @@
 export const dynamic = "force-dynamic"
 import Link from "next/link"
-import { loadTournaments, aggregateLeaderboard, modelSlug } from "@/lib/data"
+import { loadTournaments, aggregateLeaderboard, computeLeaderboardDelta, modelSlug } from "@/lib/data"
 import type { GlobalModelStats } from "@/lib/types"
+
+function RankDelta({ delta }: { delta: number | "new" | undefined }) {
+  if (delta === undefined) return null
+  if (delta === "new") {
+    return <span className="ml-1 text-[10px] font-medium text-amber-400 align-middle">new</span>
+  }
+  if (delta === 0) return null
+  const up = delta > 0
+  return (
+    <span className={`ml-1 text-[10px] font-medium align-middle ${up ? "text-emerald-400" : "text-rose-400"}`}>
+      {up ? "↑" : "↓"}{Math.abs(delta)}
+    </span>
+  )
+}
 
 function CriteriaBar({ value }: { value: number }) {
   const pct = (value / 5) * 100
@@ -31,6 +45,7 @@ function WinRate({ w, l, d }: { w: number; l: number; d: number }) {
 export default function DashboardPage() {
   const tournaments = loadTournaments()
   const leaderboard = aggregateLeaderboard(tournaments)
+  const { rankDelta } = computeLeaderboardDelta(tournaments)
 
   const totalMatches = tournaments.reduce(
     (s, t) => s + (t.match_log?.length || 0), 0
@@ -93,6 +108,7 @@ export default function DashboardPage() {
                     >
                       {m.model}
                     </Link>
+                    <RankDelta delta={rankDelta[m.model]} />
                   </td>
                   <td className="text-gray-400">{m.tournaments}</td>
                   <td className="font-mono">{m.avg_rank.toFixed(1)}</td>

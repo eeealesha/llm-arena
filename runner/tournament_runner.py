@@ -648,8 +648,25 @@ def write_article(topic: str, roles: dict, author_style: str = "storyteller",
           "path": str(out_path)})
     return article
 
+REQUIRED_ROLES = ("planner", "storyteller", "analyst", "editor", "chief_editor")
+
+def _fill_missing_roles(roles: dict, fallback: str) -> dict:
+    return {k: roles.get(k) or fallback for k in REQUIRED_ROLES}
+
 def run_article(args):
-    # Load roles from tournament file or state
+    # 1. Explicit roles from frontend take precedence
+    if args.roles_json:
+        roles = json.loads(args.roles_json)
+        if not any(roles.get(k) for k in REQUIRED_ROLES):
+            emit({"type": "error", "message": "Roles JSON is empty"})
+            return
+        fallback = next((v for v in roles.values() if v), None)
+        roles = _fill_missing_roles(roles, fallback)
+        write_article(args.topic, roles, author_style=args.style,
+                      n_iterations=args.iterations)
+        return
+
+    # 2. Otherwise derive roles from a tournament file
     if args.tournament_file:
         with open(args.tournament_file) as f:
             t = json.load(f)
@@ -672,6 +689,13 @@ def run_article(args):
             return
 
     roles = assign_editorial_roles(criteria_avgs, ranked)
+    if not roles:
+        # Fallback: use top-ranked model for every role
+        first = ranked[0][0] if ranked else None
+        if not first:
+            emit({"type": "error", "message": "No models available for article"})
+            return
+        roles = _fill_missing_roles({}, first)
     write_article(args.topic, roles, author_style=args.style,
                   n_iterations=args.iterations)
 
@@ -711,6 +735,7 @@ def main():
     a_parser = sub.add_parser("article")
     a_parser.add_argument("--topic", required=True)
     a_parser.add_argument("--tournament-file", default=None)
+    a_parser.add_argument("--roles-json", default=None)
     a_parser.add_argument("--style", choices=["storyteller", "analyst"], default="storyteller")
     a_parser.add_argument("--iterations", type=int, default=2)
 

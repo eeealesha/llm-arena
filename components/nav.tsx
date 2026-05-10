@@ -49,8 +49,22 @@ export default function Nav() {
           })}
         </div>
 
-        {/* Right side — about + mobile toggle */}
+        {/* Right side — search + about + mobile toggle */}
         <div className="ml-auto flex items-center gap-2">
+          {/* Search trigger (cmd+K) */}
+          <button
+            onClick={() => {
+              const e = new KeyboardEvent("keydown", { key: "k", metaKey: true, ctrlKey: true })
+              window.dispatchEvent(e)
+            }}
+            className="hidden sm:flex items-center gap-2 text-xs text-gray-500 hover:text-gray-300 transition-colors border border-[#2a2d3e] hover:border-[#3a3d4e] rounded-lg px-2.5 py-1"
+            aria-label="Поиск"
+          >
+            <span>🔍</span>
+            <span>Поиск</span>
+            <kbd className="border border-[#2a2d3e] rounded px-1 text-[10px] text-gray-600">⌘K</kbd>
+          </button>
+
           {/* "What is this" tooltip */}
           <div className="hidden md:block relative group">
             <button className="text-gray-500 hover:text-gray-300 transition-colors text-sm flex items-center gap-1.5 px-2 py-1 rounded-lg hover:bg-[#2a2d3e]">

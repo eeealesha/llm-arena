@@ -3,6 +3,8 @@ import Link from "next/link"
 import { getTournament, loadTournaments, modelSlug } from "@/lib/data"
 import TournamentBracket from "@/components/bracket"
 import TournamentNav from "@/components/tournament-nav"
+import PromptDiff from "@/components/prompt-diff"
+import ShareButton from "@/components/share-button"
 import type { Metadata } from "next"
 
 export const dynamic = "force-dynamic"
@@ -11,10 +13,20 @@ export async function generateMetadata({ params }: { params: { id: string } }): 
   const t = getTournament(params.id)
   if (!t) return {}
   const winner = t.ranking[0]?.model ?? ""
+  const winnerShort = winner.split(":")[0].split("/").pop() ?? winner
+  const title = `Турнир ${new Date(t.run_at).toLocaleDateString("ru-RU")} — ${winnerShort}`
+  const description = t.task.slice(0, 160)
+  const ogUrl = `/api/og?kind=tournament&title=${encodeURIComponent(t.task.slice(0, 90))}&subtitle=${encodeURIComponent(`Судья: ${t.judge.split(":")[0]} · ${t.ranking.length} участников`)}&winner=${encodeURIComponent(winnerShort)}`
   return {
-    title: `Турнир ${new Date(t.run_at).toLocaleDateString("ru-RU")} — ${winner.split(":")[0]}`,
-    description: t.task.slice(0, 160),
-    openGraph: { title: `LLM Arena — ${t.task.slice(0, 60)}`, description: t.task.slice(0, 160) },
+    title,
+    description,
+    openGraph: {
+      title: `LLM Arena — ${t.task.slice(0, 60)}`,
+      description,
+      type: "article",
+      images: [ogUrl],
+    },
+    twitter: { card: "summary_large_image", images: [ogUrl] },
   }
 }
 
@@ -70,9 +82,16 @@ export default function TournamentPage({ params }: { params: { id: string } }) {
               <span className="badge bg-[#2a2d3e] text-gray-400">промпт v{t.prompt_version}</span>
               <span className="text-gray-500 text-xs self-center">{date}</span>
             </div>
-            <h1 className="text-xl font-bold text-white">
-              Турнир <span className="text-gray-500 font-mono text-base">#{t.id.slice(-16)}</span>
-            </h1>
+            <div className="flex items-center gap-3 flex-wrap">
+              <h1 className="text-xl font-bold text-white">
+                Турнир <span className="text-gray-500 font-mono text-base">#{t.id.slice(-16)}</span>
+              </h1>
+              <ShareButton
+                title={`LLM Arena — ${t.task.slice(0, 60)}`}
+                text={`Турнир от ${new Date(t.run_at).toLocaleDateString("ru-RU")}. Победитель: ${t.ranking[0]?.model ?? "—"}`}
+                path={`/tournament/${t.id}`}
+              />
+            </div>
           </div>
           {/* Quick stats */}
           <div className="flex gap-3 shrink-0">
@@ -93,21 +112,15 @@ export default function TournamentPage({ params }: { params: { id: string } }) {
         <details className="mt-4 group" open>
           <summary className="cursor-pointer flex items-center gap-2 text-sm text-gray-400 hover:text-gray-200 transition-colors list-none">
             <span className="w-4 h-4 rounded bg-[#2a2d3e] flex items-center justify-center text-xs text-gray-500 group-open:rotate-90 transition-transform">›</span>
-            Задание турнира
+            Задание турнира {t.evolved_task && t.evolved_task !== t.task && <span className="text-indigo-400/70">· эволюция</span>}
           </summary>
-          <div className="mt-3 pl-6 space-y-3">
-            <p className="text-gray-300 text-sm leading-relaxed max-w-3xl bg-[#13151f] border border-[#2a2d3e] rounded-xl p-4">
-              {t.task?.trim() ?? "—"}
-            </p>
-            {t.evolved_task && t.evolved_task !== t.task && (
-              <div className="max-w-3xl">
-                <div className="text-xs text-indigo-400/70 uppercase tracking-wide mb-1.5 pl-1">
-                  Эволюция промпта →
-                </div>
-                <p className="text-gray-400 text-sm leading-relaxed bg-indigo-950/20 border border-indigo-900/40 rounded-xl p-4">
-                  {t.evolved_task?.trim() ?? ""}
-                </p>
-              </div>
+          <div className="mt-3 pl-6 space-y-3 max-w-3xl">
+            {t.evolved_task && t.evolved_task !== t.task ? (
+              <PromptDiff original={t.task ?? ""} evolved={t.evolved_task} />
+            ) : (
+              <p className="text-gray-300 text-sm leading-relaxed bg-[#13151f] border border-[#2a2d3e] rounded-xl p-4 whitespace-pre-wrap">
+                {t.task?.trim() ?? "—"}
+              </p>
             )}
           </div>
         </details>
