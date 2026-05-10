@@ -456,7 +456,7 @@ def run_tournament(args):
         if isinstance(contestants[0], dict):
             contestants = [m["name"] for m in contestants]
     else:
-        available = get_available_models(force_recheck=False)
+        available = get_available_models(force_recheck=True)
         contestants = [m["name"] for m in available]
 
     if args.max_contestants:
