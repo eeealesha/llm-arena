@@ -653,7 +653,7 @@ def run_article(args):
     if args.tournament_file:
         with open(args.tournament_file) as f:
             t = json.load(f)
-        ranked = [(r["model"], r["ts_score"]) for r in t["ranking"]]
+        ranked = [(r["model"], r.get("ts_score") or r.get("elo", 0)) for r in t["ranking"]]
         criteria_avgs = t.get("criteria_avgs", {})
     else:
         # Find latest tournament with criteria_avgs
@@ -664,7 +664,7 @@ def run_article(args):
             with open(p) as f:
                 t = json.load(f)
             if t.get("criteria_avgs") and t.get("ranking"):
-                ranked = [(r["model"], r["ts_score"]) for r in t["ranking"]]
+                ranked = [(r["model"], r.get("ts_score") or r.get("elo", 0)) for r in t["ranking"]]
                 criteria_avgs = t["criteria_avgs"]
                 break
         if not ranked:

@@ -112,11 +112,26 @@ export default function AdminPage() {
 
   async function refreshModels() {
     setRefreshing(true)
-    await fetch("/api/runner/models/refresh", { method: "POST" }).catch(() => {})
-    setTimeout(() => {
-      fetch("/api/runner/models").then(r => r.json()).then(d => setModels(d.available || [])).catch(() => {})
+    try {
+      const r = await fetch("/api/runner/models/refresh", { method: "POST" })
+      if (!r.ok) { setRefreshing(false); return }
+      // Poll status until subprocess finishes, then reload model list
+      const poll = setInterval(async () => {
+        try {
+          const s = await fetch("/api/runner/status").then(r => r.json())
+          if (!s?.running) {
+            clearInterval(poll)
+            fetch("/api/runner/models").then(r => r.json()).then(d => setModels(d.available || [])).catch(() => {})
+            setRefreshing(false)
+          }
+        } catch {
+          clearInterval(poll)
+          setRefreshing(false)
+        }
+      }, 1500)
+    } catch {
       setRefreshing(false)
-    }, 3000)
+    }
   }
 
   const TABS = [
