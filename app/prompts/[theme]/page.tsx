@@ -18,16 +18,16 @@ async function fetchLineage(slug: string): Promise<Lineage | null> {
 }
 
 const OPERATOR_DESCRIPTIONS: Record<string, { icon: string; short: string; long: string }> = {
-  seed:          { icon: "🌱", short: "Seed",         long: "The initial prompt you provided. Starting point for all mutations." },
-  zero_order:    { icon: "🎲", short: "Zero-order",   long: "Generates a completely fresh prompt from the theme alone — no parent. High variance, good for exploration." },
-  first_order:   { icon: "✏️", short: "First-order",  long: "Takes a parent prompt and applies a sampled rewrite instruction (e.g. 'make it shorter', 'add structure'). Low variance." },
-  hyper:         { icon: "🌀", short: "Hyper-mut",    long: "Self-referential: first invents a new mutation operation, then applies it. Can produce surprising results." },
-  lamarckian:    { icon: "🧬", short: "Lamarckian",   long: "Reverse-engineers the ideal prompt by studying the best response produced so far. Adapts to what actually works." },
-  eda:           { icon: "📊", short: "EDA",          long: "Estimation of Distribution: synthesises a new prompt by analysing patterns across the top-N scored prompts." },
-  eda_rank_index:{ icon: "📈", short: "EDA-rank",     long: "Like EDA but shows the model a ranked list and asks it to generate a prompt that would beat rank #1." },
-  lineage_based: { icon: "🌿", short: "Lineage",      long: "Shows the full ancestor chain (gen 0 → gen N) and asks the model to extrapolate the next evolutionary step." },
-  crossover:     { icon: "✂️", short: "Crossover",    long: "Picks two parent prompts and combines their best elements — like genetic crossover." },
-  workbook:      { icon: "📓", short: "Workbook",     long: "Uses multiple high-quality outputs as examples and reverse-engineers the prompt that would consistently produce them." },
+  seed:          { icon: "🌱", short: "Начальный",       long: "Промпт, который вы задали. Стартовая точка для всех мутаций." },
+  zero_order:    { icon: "🎲", short: "Нулевой порядок", long: "Генерирует новый промпт из темы — без родителя. Высокая вариативность, хорош для разведки." },
+  first_order:   { icon: "✏️", short: "Первый порядок",  long: "Берёт родительский промпт и применяет случайную инструкцию перезаписи (например, «сделай короче», «добавь структуру»). Низкая вариативность." },
+  hyper:         { icon: "🌀", short: "Гипер-мутация",   long: "Самоссылочный: сначала придумывает новую операцию мутации, затем применяет её. Может давать неожиданные результаты." },
+  lamarckian:    { icon: "🧬", short: "Ламарковская",    long: "Реверс-инжиниринг идеального промпта через изучение лучшего сгенерированного ответа. Адаптируется к тому, что реально работает." },
+  eda:           { icon: "📊", short: "EDA",             long: "Оценка распределения: синтезирует новый промпт, анализируя паттерны в топ-N лучших промптах популяции." },
+  eda_rank_index:{ icon: "📈", short: "EDA-ранг",        long: "Как EDA, но показывает модели ранжированный список и просит сгенерировать промпт, который обойдёт #1." },
+  lineage_based: { icon: "🌿", short: "Линейный",        long: "Показывает полную цепочку предков (gen 0 → gen N) и просит экстраполировать следующий эволюционный шаг." },
+  crossover:     { icon: "✂️", short: "Кроссовер",       long: "Берёт два родительских промпта и комбинирует их лучшие элементы — как генетический кроссовер." },
+  workbook:      { icon: "📓", short: "Рабочая книга",   long: "Использует несколько высококачественных ответов как примеры и реверс-инжинирит промпт, стабильно воспроизводящий их." },
 }
 
 export default async function LineagePage({ params }: { params: { theme: string } }) {
@@ -62,7 +62,7 @@ export default async function LineagePage({ params }: { params: { theme: string 
     <div className="space-y-8">
       {/* Breadcrumb */}
       <div className="flex items-center gap-2 text-xs text-gray-500">
-        <Link href="/prompts" className="hover:text-gray-300 transition-colors">Evolution</Link>
+        <Link href="/prompts" className="hover:text-gray-300 transition-colors">Эволюция</Link>
         <span>/</span>
         <span className="text-gray-400 font-mono">{lineage.theme_slug}</span>
       </div>
@@ -74,12 +74,12 @@ export default async function LineagePage({ params }: { params: { theme: string 
           <DeleteLineageButton slug={lineage.theme_slug} label={lineage.theme_label} />
         </div>
         <div className="flex flex-wrap gap-4 mt-3 text-sm">
-          <Stat label="Prompts" value={lineage.prompts.length} />
-          <Stat label="Generations" value={lineage.generations.length} />
-          <Stat label="Pareto-optimal" value={pareto.length} accent="amber" />
-          <Stat label="Evaluations" value={totalEvals} />
+          <Stat label="Промптов" value={lineage.prompts.length} />
+          <Stat label="Поколений" value={lineage.generations.length} />
+          <Stat label="Pareto-оптимальных" value={pareto.length} accent="amber" />
+          <Stat label="Оценок" value={totalEvals} />
           {best && (
-            <Stat label="Best avg score" value={`${best.fitness.avg_score.toFixed(2)}/10`} accent="indigo" />
+            <Stat label="Лучший avg" value={`${best.fitness.avg_score.toFixed(2)}/10`} accent="indigo" />
           )}
         </div>
       </div>
@@ -87,16 +87,16 @@ export default async function LineagePage({ params }: { params: { theme: string 
       {/* Score progression */}
       {genProgress.length > 1 && (
         <div className="card border-[#2a2d3e]">
-          <div className="text-xs uppercase tracking-wide text-gray-500 mb-3">Score progression by generation</div>
+          <div className="text-xs uppercase tracking-wide text-gray-500 mb-3">Прогресс оценок по поколениям</div>
           <div className="space-y-2">
             {genProgress.map(gp => (
               <div key={gp.gen} className="flex items-center gap-3 text-xs">
-                <span className="text-gray-600 w-12">gen {gp.gen}</span>
+                <span className="text-gray-600 w-12">ген {gp.gen}</span>
                 <div className="flex-1 h-2 bg-[#2a2d3e] rounded-full overflow-hidden">
                   <div className="h-full bg-indigo-500 rounded-full" style={{ width: `${(gp.best / 10) * 100}%` }} />
                 </div>
-                <span className="text-gray-400 font-mono w-16 text-right">
-                  best {gp.best.toFixed(2)} <span className="text-gray-600">/ avg {gp.avg.toFixed(2)}</span>
+                <span className="text-gray-400 font-mono w-28 text-right">
+                  лучший {gp.best.toFixed(2)} <span className="text-gray-600">/ avg {gp.avg.toFixed(2)}</span>
                 </span>
               </div>
             ))}
@@ -108,13 +108,13 @@ export default async function LineagePage({ params }: { params: { theme: string 
       {seed && best && best.id !== seed.id && (
         <div className="card border-[#2a2d3e] space-y-4">
           <div className="text-xs uppercase tracking-wide text-gray-500">
-            Seed prompt → best evolved prompt
+            Начальный промпт → лучший эволюционировавший
           </div>
           <div className="grid md:grid-cols-2 gap-4">
             <div className="space-y-2">
               <div className="flex items-center gap-2">
                 <span className="text-lg">🌱</span>
-                <span className="text-sm font-medium text-gray-300">Gen 0 seed</span>
+                <span className="text-sm font-medium text-gray-300">Ген 0 (начальный)</span>
                 {seed.fitness?.avg_score != null && (
                   <span className="ml-auto text-xs font-mono text-gray-500">{seed.fitness.avg_score.toFixed(2)}/10</span>
                 )}
@@ -126,7 +126,7 @@ export default async function LineagePage({ params }: { params: { theme: string 
             <div className="space-y-2">
               <div className="flex items-center gap-2">
                 <span className="text-lg">{OPERATOR_DESCRIPTIONS[best.mutation_op]?.icon ?? "•"}</span>
-                <span className="text-sm font-medium text-indigo-300">Best evolved (gen {best.generation})</span>
+                <span className="text-sm font-medium text-indigo-300">Лучший (ген {best.generation})</span>
                 {best.fitness?.avg_score != null && (
                   <span className="ml-auto text-xs font-mono text-indigo-300 font-bold">{best.fitness.avg_score.toFixed(2)}/10</span>
                 )}
@@ -139,11 +139,11 @@ export default async function LineagePage({ params }: { params: { theme: string 
           {/* Per-criteria delta */}
           {seed.fitness?.n_evals && best.fitness?.n_evals && (
             <div className="pt-3 border-t border-[#2a2d3e]">
-              <div className="text-xs text-gray-600 mb-2">Criteria improvement (seed → best)</div>
+              <div className="text-xs text-gray-600 mb-2">Изменение по критериям (начальный → лучший)</div>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
                 {CRITERIA.map(c => {
-                  const seedVal = (seed.fitness as Record<string, number>)[c] ?? 0
-                  const bestVal = (best.fitness as Record<string, number>)[c] ?? 0
+                  const seedVal = (seed.fitness as unknown as Record<string, number>)[c] ?? 0
+                  const bestVal = (best.fitness as unknown as Record<string, number>)[c] ?? 0
                   const delta   = bestVal - seedVal
                   return (
                     <div key={c} className="text-center">
@@ -166,24 +166,24 @@ export default async function LineagePage({ params }: { params: { theme: string 
 
       {/* Pareto explanation */}
       <div className="card border-[#2a2d3e]">
-        <div className="text-xs uppercase tracking-wide text-gray-500 mb-3">What is Pareto-optimal? ★</div>
+        <div className="text-xs uppercase tracking-wide text-gray-500 mb-3">Что такое Pareto-оптимальный? ★</div>
         <p className="text-sm text-gray-400 leading-relaxed">
-          A prompt is <span className="text-amber-300">Pareto-optimal</span> if no other prompt is better on{" "}
-          <em>all</em> criteria simultaneously. For example: prompt A scores higher on{" "}
-          <em>density</em> but lower on <em>specificity</em> than prompt B — both are Pareto-optimal
-          because neither dominates the other completely. The Pareto frontier gives you a set of
-          the best trade-offs, not a single winner.
+          Промпт является <span className="text-amber-300">Pareto-оптимальным</span>, если ни один другой промпт не превосходит его{" "}
+          <em>одновременно по всем</em> критериям. Например: промпт A набирает больше по{" "}
+          <em>density</em>, но меньше по <em>specificity</em>, чем промпт B — оба Pareto-оптимальны,
+          потому что ни один полностью не доминирует над другим. Граница Парето даёт набор
+          наилучших компромиссов, а не единственного победителя.
         </p>
         <p className="text-sm text-gray-500 mt-2">
-          A super-weak prompt may score high if the judge inflates scores — that&apos;s why Pareto uses
-          relative dominance, not raw score thresholds.
+          Слабый промпт может получить высокий балл, если судья завышает оценки — именно поэтому
+          Pareto использует относительное доминирование, а не пороговые значения.
         </p>
       </div>
 
       {/* Operators used */}
       {opsUsed.length > 0 && (
         <div className="card border-[#2a2d3e]">
-          <div className="text-xs uppercase tracking-wide text-gray-500 mb-3">Mutation operators used in this lineage</div>
+          <div className="text-xs uppercase tracking-wide text-gray-500 mb-3">Операторы мутации в этой ветке</div>
           <div className="space-y-3">
             {opsUsed.map(op => {
               const d = OPERATOR_DESCRIPTIONS[op]
@@ -195,7 +195,7 @@ export default async function LineagePage({ params }: { params: { theme: string 
                   <div>
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-medium text-gray-300">{d.short}</span>
-                      <span className="text-xs text-gray-600">{count} prompt{count > 1 ? "s" : ""}</span>
+                      <span className="text-xs text-gray-600">{count} промпт{count > 1 ? "а" : ""}</span>
                     </div>
                     <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">{d.long}</p>
                   </div>
@@ -208,17 +208,17 @@ export default async function LineagePage({ params }: { params: { theme: string 
 
       {/* Criteria & evaluation method */}
       <div className="card border-[#2a2d3e]">
-        <div className="text-xs uppercase tracking-wide text-gray-500 mb-3">Scoring criteria (1–10 each)</div>
+        <div className="text-xs uppercase tracking-wide text-gray-500 mb-3">Критерии оценки (1–10 каждый)</div>
         <div className="grid sm:grid-cols-2 gap-3">
           {[
-            { key: "instruction_following", label: "Instruction following",
-              desc: "Does the response address every requirement in the prompt? Missed constraints are penalised." },
-            { key: "logic_accuracy", label: "Logic & accuracy",
-              desc: "Factual correctness and sound reasoning. Real verifiable references raise the score; hallucinations lower it." },
-            { key: "density", label: "Density (anti-filler)",
-              desc: "Information per word. Penalises AI-filler: 'Certainly!', 'It is important to note', excessive hedging, repetition." },
-            { key: "specificity", label: "Specificity",
-              desc: "Concrete details: named tools, real numbers, actionable examples. Vague generalities score low." },
+            { key: "instruction_following", label: "Следование инструкции",
+              desc: "Ответ охватывает все требования промпта? Пропущенные ограничения снижают оценку. (IFEval, Zhou 2023)" },
+            { key: "logic_accuracy", label: "Логика и точность",
+              desc: "Фактическая корректность и обоснованность. Реальные верифицируемые ссылки повышают оценку, галлюцинации снижают. (FactScore, Min 2023)" },
+            { key: "density", label: "Плотность (анти-вода)",
+              desc: "Информация на слово. Штрафует за AI-заглушки: «Конечно!», «Важно отметить», избыточные оговорки, повторения. (Liu 2023)" },
+            { key: "specificity", label: "Конкретность",
+              desc: "Конкретные детали: названия инструментов, реальные числа, практические примеры. Расплывчатые обобщения — низкая оценка. (HELM, Liang 2022)" },
           ].map(c => (
             <div key={c.key} className="p-3 bg-[#0a0c12] rounded-lg border border-[#2a2d3e]">
               <div className="text-sm font-medium text-gray-300 mb-1">{c.label}</div>
@@ -227,9 +227,9 @@ export default async function LineagePage({ params }: { params: { theme: string 
           ))}
         </div>
         <div className="mt-3 pt-3 border-t border-[#2a2d3e] text-xs text-gray-600">
-          <strong className="text-gray-500">Blind Double-Shuffle</strong> — every pair of responses is
-          compared twice (A→B then B→A with positions swapped). If the judge picks differently in each
-          pass, the result is a tie. This eliminates position bias.
+          <strong className="text-gray-500">Blind Double-Shuffle</strong> — каждая пара ответов сравнивается дважды
+          (A→B, затем B→A со сменой позиций). Если судья выбирает разные результаты в двух прогонах —
+          ничья. Это устраняет позиционное смещение.
         </div>
       </div>
     </div>

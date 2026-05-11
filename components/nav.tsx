@@ -2,6 +2,7 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useState } from "react"
+import ThemeToggle from "@/components/theme-toggle"
 
 const links = [
   { href: "/",           label: "Лидерборд",  sub: "рейтинг всех моделей" },
@@ -75,19 +76,21 @@ export default function Nav() {
             <div className="absolute right-0 top-full mt-2 w-72 rounded-xl bg-[#1a1d27] border border-[#2a2d3e] p-4 opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity shadow-2xl z-50 text-sm">
               <div className="font-semibold text-white mb-2">Что такое LLM Arena?</div>
               <p className="text-gray-400 text-xs leading-relaxed">
-                Открытый бенчмарк бесплатных языковых моделей. Каждый турнир — это
-                швейцарская система, где модели пишут посты, а независимый судья-LLM
-                оценивает их по 4 критериям: вовлечённость, информативность, точность,
-                оригинальность.
+                Открытый бенчмарк языковых моделей. Промпты эволюционируют через
+                9 операторов PromptBreeder, а оценка идёт через Blind Double-Shuffle
+                по 4 утилитарным критериям — без позиционного смещения.
               </p>
               <div className="mt-3 pt-3 border-t border-[#2a2d3e] grid grid-cols-2 gap-2 text-xs text-gray-500">
-                <span>⚔️ TrueSkill рейтинг</span>
-                <span>📊 Мультикритерии</span>
-                <span>🔄 Эволюция промптов</span>
-                <span>✍️ Редакция LLM</span>
+                <span>🧬 Эволюция промптов</span>
+                <span>📊 4 критерия оценки</span>
+                <span>⚖️ Blind Double-Shuffle</span>
+                <span>🌿 Дерево линий</span>
               </div>
             </div>
           </div>
+
+          {/* Theme toggle */}
+          <ThemeToggle />
 
           {/* Mobile menu toggle */}
           <button

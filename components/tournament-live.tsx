@@ -45,23 +45,23 @@ interface EvolveState {
 }
 
 const OP_META: Record<string, { icon: string; label: string; color: string; desc: string }> = {
-  seed:          { icon: "🌱", label: "Seed",        color: "text-gray-400",   desc: "Initial prompt" },
-  zero_order:    { icon: "🎲", label: "Zero-order",  color: "text-blue-300",   desc: "Fresh prompt generated from theme only" },
-  first_order:   { icon: "✏️", label: "First-order", color: "text-purple-300", desc: "Parent mutated using a sampled mutation instruction" },
-  hyper:         { icon: "🌀", label: "Hyper-mut",   color: "text-pink-300",   desc: "Self-referential: invented a new mutation op, then applied it" },
-  lamarckian:    { icon: "🧬", label: "Lamarckian",  color: "text-amber-300",  desc: "Reverse-engineered from the best response" },
-  eda:           { icon: "📊", label: "EDA",         color: "text-emerald-300",desc: "Synthesised from patterns in top-N population prompts" },
-  eda_rank_index:{ icon: "📈", label: "EDA-rank",    color: "text-teal-300",   desc: "Generated to beat the current rank-1 prompt" },
-  lineage_based: { icon: "🌿", label: "Lineage",     color: "text-orange-300", desc: "Extrapolated from the full ancestor chain" },
-  crossover:     { icon: "✂️", label: "Crossover",   color: "text-fuchsia-300",desc: "Best elements of two parent prompts combined" },
-  workbook:      { icon: "📓", label: "Workbook",    color: "text-rose-300",   desc: "Reverse-engineered from multiple high-quality outputs" },
+  seed:          { icon: "🌱", label: "Начальный",        color: "text-gray-400",   desc: "Начальный промпт" },
+  zero_order:    { icon: "🎲", label: "Нулевой порядок",  color: "text-blue-300",   desc: "Новый промпт из темы — без родителя" },
+  first_order:   { icon: "✏️", label: "Первый порядок",   color: "text-purple-300", desc: "Мутация родителя по случайной инструкции" },
+  hyper:         { icon: "🌀", label: "Гипер-мутация",    color: "text-pink-300",   desc: "Самоссылочный: придумал новую операцию и применил её" },
+  lamarckian:    { icon: "🧬", label: "Ламарковская",     color: "text-amber-300",  desc: "Реверс-инжиниринг из лучшего ответа" },
+  eda:           { icon: "📊", label: "EDA",              color: "text-emerald-300",desc: "Синтез из паттернов топ-N промптов популяции" },
+  eda_rank_index:{ icon: "📈", label: "EDA-ранг",         color: "text-teal-300",   desc: "Генерируется с целью обойти промпт №1" },
+  lineage_based: { icon: "🌿", label: "Линейный",         color: "text-orange-300", desc: "Экстраполяция из полной цепочки предков" },
+  crossover:     { icon: "✂️", label: "Кроссовер",        color: "text-fuchsia-300",desc: "Лучшие элементы двух родительских промптов объединены" },
+  workbook:      { icon: "📓", label: "Рабочая книга",    color: "text-rose-300",   desc: "Реверс-инжиниринг из нескольких качественных ответов" },
 }
 
 const CRITERIA_LABELS: Record<string, string> = {
-  instruction_following: "Follows instructions",
-  logic_accuracy:        "Factual accuracy",
-  density:               "No filler / dense",
-  specificity:           "Concrete & specific",
+  instruction_following: "Следование инструкции",
+  logic_accuracy:        "Точность фактов",
+  density:               "Без воды",
+  specificity:           "Конкретность",
 }
 
 const STEP_META: Record<string, { icon: string; label: string }> = {
@@ -192,8 +192,8 @@ function ComparisonCard({ c }: { c: Comparison }) {
   const [open, setOpen] = useState(false)
   const verdictColor = c.verdict === "TIE" ? "text-amber-400" : "text-emerald-400"
   const verdictLabel =
-    c.verdict === "A" ? `${shortName(c.model_a)} wins` :
-    c.verdict === "B" ? `${shortName(c.model_b)} wins` : "Tie"
+    c.verdict === "A" ? `${shortName(c.model_a)} побеждает` :
+    c.verdict === "B" ? `${shortName(c.model_b)} побеждает` : "Ничья"
   const avgA = c.scores_a ? Object.values(c.scores_a).reduce((a, b) => a + b, 0) / Object.values(c.scores_a).length : 0
   const avgB = c.scores_b ? Object.values(c.scores_b).reduce((a, b) => a + b, 0) / Object.values(c.scores_b).length : 0
 
@@ -226,7 +226,7 @@ function ComparisonCard({ c }: { c: Comparison }) {
             </div>
           </div>
           <p className="text-[10px] text-gray-600 mt-1">
-            Blind Double-Shuffle: both positions tested, verdict only if consistent.
+            Blind Double-Shuffle: обе позиции тестируются, вердикт только при совпадении.
           </p>
         </div>
       )}
@@ -251,7 +251,7 @@ function PromptCard({ e, isActive }: { e: EvolveEntry; isActive?: boolean }) {
         <span title={meta.desc}>{meta.icon}</span>
         <span className={`text-xs font-medium ${meta.color}`} title={meta.desc}>{meta.label}</span>
         {e.is_pareto && (
-          <span title="Pareto-optimal: no other prompt dominates this on ALL criteria simultaneously"
+          <span title="Pareto-оптимальный: ни один другой промпт не превосходит этот одновременно по всем критериям"
                 className="text-[10px] px-1.5 py-0.5 rounded bg-amber-900/40 text-amber-300 cursor-help">
             ★ Pareto
           </span>
@@ -259,7 +259,7 @@ function PromptCard({ e, isActive }: { e: EvolveEntry; isActive?: boolean }) {
         {isActive && (
           <span className="text-[10px] text-fuchsia-400 inline-flex items-center gap-1 ml-1">
             <span className="w-1.5 h-1.5 rounded-full bg-fuchsia-400 animate-pulse" />
-            evaluating…
+            оценивается…
           </span>
         )}
         {e.fitness && (
@@ -318,19 +318,19 @@ function EvolvePipeline({ evolve }: { evolve: EvolveState }) {
 
       {/* Header */}
       <div className="card border-fuchsia-700/40 bg-fuchsia-950/10">
-        <div className="text-xs uppercase tracking-wide text-fuchsia-400 mb-1">🧬 Prompt Evolution</div>
+        <div className="text-xs uppercase tracking-wide text-fuchsia-400 mb-1">🧬 Эволюция промптов</div>
         <div className="text-white font-semibold leading-snug">{evolve.theme}</div>
         <div className="mt-2 flex flex-wrap gap-4 text-xs text-gray-500">
-          <span>Generation <span className="text-gray-300 font-medium">{evolve.current_gen}</span> / {evolve.generations}</span>
+          <span>Поколение <span className="text-gray-300 font-medium">{evolve.current_gen}</span> / {evolve.generations}</span>
           <span>
-            <span title="Pareto-optimal: prompts where no other prompt is better on ALL criteria at once" className="cursor-help">
+            <span title="Pareto-оптимальный: ни один другой промпт не превосходит по всем критериям одновременно" className="cursor-help">
               ★ Pareto
             </span>: <span className="text-amber-300 font-medium">{paretoCount}</span>
           </span>
           {bestSoFar?.fitness && (
-            <span>Best avg: <span className="text-indigo-300 font-mono">{bestSoFar.fitness.avg_score.toFixed(2)}/10</span></span>
+            <span>Лучший avg: <span className="text-indigo-300 font-mono">{bestSoFar.fitness.avg_score.toFixed(2)}/10</span></span>
           )}
-          <span>Judge: <span className="text-gray-300">{shortName(evolve.judge)}</span></span>
+          <span>Судья: <span className="text-gray-300">{shortName(evolve.judge)}</span></span>
         </div>
         {evolve.criteria?.length > 0 && (
           <div className="mt-2 flex flex-wrap gap-1">
@@ -347,13 +347,13 @@ function EvolvePipeline({ evolve }: { evolve: EvolveState }) {
       {(evolve.active_responses.length > 0 || evolve.active_comparisons.length > 0) && !evolve.done && (
         <div className="card border-fuchsia-800/30 bg-[#0f0d18] space-y-3">
           <div className="text-xs uppercase tracking-wide text-fuchsia-400">
-            ⚡ Evaluating {activeEntry ? `"${(activeEntry.text ?? "").slice(0, 60)}…"` : "…"}
+            ⚡ Оценивается {activeEntry ? `"${(activeEntry.text ?? "").slice(0, 60)}…"` : "…"}
           </div>
 
           {/* Step 1: models writing */}
           {evolve.active_responses.length > 0 && (
             <div>
-              <div className="text-[10px] text-gray-600 uppercase tracking-wide mb-1.5">Step 1 — Generate responses</div>
+              <div className="text-[10px] text-gray-600 uppercase tracking-wide mb-1.5">Шаг 1 — Генерация ответов</div>
               <div className="space-y-1">
                 {evolve.active_responses.map((r, i) => (
                   <div key={i} className="flex items-center gap-2 text-xs">
@@ -361,8 +361,8 @@ function EvolvePipeline({ evolve }: { evolve: EvolveState }) {
                       {r.status === "done" ? "✓" : r.status === "failed" ? "✗" : "•"}
                     </span>
                     <span className="text-gray-300">{shortName(r.model)}</span>
-                    {r.words && <span className="text-gray-600 ml-auto">{r.words} words</span>}
-                    {r.status === "writing" && <span className="text-fuchsia-500 ml-auto text-[10px] animate-pulse">writing…</span>}
+                    {r.words && <span className="text-gray-600 ml-auto">{r.words} слов</span>}
+                    {r.status === "writing" && <span className="text-fuchsia-500 ml-auto text-[10px] animate-pulse">пишет…</span>}
                   </div>
                 ))}
               </div>
@@ -373,13 +373,13 @@ function EvolvePipeline({ evolve }: { evolve: EvolveState }) {
           {evolve.active_comparisons.length > 0 && (
             <div>
               <div className="text-[10px] text-gray-600 uppercase tracking-wide mb-1.5">
-                Step 2 — Blind Double-Shuffle comparisons
+                Шаг 2 — Сравнения Blind Double-Shuffle
               </div>
               <div className="space-y-1.5">
                 {evolve.active_comparisons.map((c, i) => <ComparisonCard key={i} c={c} />)}
               </div>
               <p className="text-[10px] text-gray-600 mt-1.5">
-                Each pair is compared twice with positions swapped. Inconsistent result → Tie.
+                Каждая пара сравнивается дважды со сменой позиций. Несовпадение → ничья.
               </p>
             </div>
           )}
@@ -392,10 +392,10 @@ function EvolvePipeline({ evolve }: { evolve: EvolveState }) {
           <div key={g}>
             <div className="flex items-center gap-3 mb-2">
               <div className="text-xs font-bold text-fuchsia-400 uppercase tracking-widest">
-                {g === 0 ? "gen 0 — seed" : `gen ${g}`}
+                {g === 0 ? "ген 0 — старт" : `ген ${g}`}
               </div>
               <div className="flex-1 h-px bg-[#2a2d3e]" />
-              <span className="text-xs text-gray-600">{byGen[g].length} prompt{byGen[g].length > 1 ? "s" : ""}</span>
+              <span className="text-xs text-gray-600">{byGen[g].length} промпт{byGen[g].length > 1 ? "а" : ""}</span>
             </div>
             <div className="space-y-2">
               {byGen[g].map((e, i) => (
@@ -410,18 +410,18 @@ function EvolvePipeline({ evolve }: { evolve: EvolveState }) {
       {evolve.done && (
         <div className="card border-emerald-800/50 bg-emerald-950/20 text-center py-6">
           <div className="text-3xl mb-2">🏁</div>
-          <div className="text-white font-bold text-lg">Evolution complete</div>
+          <div className="text-white font-bold text-lg">Эволюция завершена</div>
           <div className="text-gray-400 text-sm mt-1">
-            {evolve.entries.length} prompts evaluated · {paretoCount} Pareto-optimal
+            {evolve.entries.length} промптов оценено · {paretoCount} Pareto-оптимальных
           </div>
           {bestSoFar?.fitness && (
             <div className="text-emerald-400 text-sm mt-1">
-              Best prompt avg score: <span className="font-mono font-bold">{bestSoFar.fitness.avg_score.toFixed(2)}/10</span>
+              Лучший промпт avg: <span className="font-mono font-bold">{bestSoFar.fitness.avg_score.toFixed(2)}/10</span>
             </div>
           )}
           <a href={`/prompts/${evolve.theme_slug}`}
              className="mt-4 inline-block px-5 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-500 transition-colors">
-            View full tree →
+            Полное дерево →
           </a>
         </div>
       )}

@@ -20,7 +20,7 @@ function FitnessBars({ fitness }: { fitness: PromptNode["fitness"] }) {
         return (
           <div key={c} className="flex items-center gap-1.5">
             <span className="text-[9px] text-gray-500 w-6 uppercase">{c.slice(0, 3)}</span>
-            <div className="flex-1 h-1 bg-[#2a2d3e] rounded-full overflow-hidden">
+            <div className="flex-1 h-1 bg-[var(--border)] rounded-full overflow-hidden">
               <div className="h-full rounded-full" style={{ width: `${(val / 10) * 100}%`, backgroundColor: colors[i] }} />
             </div>
             <span className="text-[9px] font-mono text-gray-400 w-4 text-right">{val.toFixed(1)}</span>
@@ -34,8 +34,8 @@ function FitnessBars({ fitness }: { fitness: PromptNode["fitness"] }) {
 function PromptDetailPanel({ p, onClose }: { p: PromptNode; onClose: () => void }) {
   const opMeta = OPERATOR_META[p.mutation_op] ?? { label: p.mutation_op, color: "#888", icon: "•" }
   return (
-    <div className="fixed inset-y-0 right-0 w-full max-w-md bg-[#13151f] border-l border-[#2a2d3e] z-50 overflow-y-auto shadow-2xl">
-      <div className="sticky top-0 bg-[#13151f] border-b border-[#2a2d3e] px-5 py-3 flex items-center justify-between">
+    <div className="fixed inset-y-0 right-0 w-full max-w-md bg-[var(--panel)] border-l border-[var(--border)] z-50 overflow-y-auto shadow-2xl">
+      <div className="sticky top-0 bg-[var(--panel)] border-b border-[var(--border)] px-5 py-3 flex items-center justify-between">
         <div className="flex items-center gap-2 min-w-0">
           <span className="text-lg shrink-0">{opMeta.icon}</span>
           <div className="min-w-0">
@@ -52,7 +52,7 @@ function PromptDetailPanel({ p, onClose }: { p: PromptNode; onClose: () => void 
       <div className="p-5 space-y-5">
         <div>
           <div className="text-xs uppercase tracking-wide text-gray-500 mb-2">Текст промпта</div>
-          <p className="text-gray-200 text-sm leading-relaxed whitespace-pre-wrap bg-[#0a0c12] border border-[#2a2d3e] rounded-lg p-3">
+          <p className="text-gray-200 text-sm leading-relaxed whitespace-pre-wrap bg-[var(--surface-deep)] border border-[var(--border)] rounded-lg p-3">
             {p.text}
           </p>
         </div>
@@ -84,11 +84,11 @@ function PromptDetailPanel({ p, onClose }: { p: PromptNode; onClose: () => void 
             </div>
             <div className="space-y-2">
               {Object.entries(p.sample_outputs).map(([model, post]) => (
-                <details key={model} className="border border-[#2a2d3e] rounded-lg">
-                  <summary className="cursor-pointer px-3 py-2 text-xs text-gray-400 hover:bg-[#1a1d27]">
+                <details key={model} className="border border-[var(--border)] rounded-lg">
+                  <summary className="cursor-pointer px-3 py-2 text-xs text-gray-400 hover:bg-[var(--surface-hover)]">
                     {shortName(model)} · {post.split(/\s+/).length} слов
                   </summary>
-                  <p className="px-3 py-2 text-xs text-gray-300 leading-relaxed whitespace-pre-wrap border-t border-[#2a2d3e]">{post}</p>
+                  <p className="px-3 py-2 text-xs text-gray-300 leading-relaxed whitespace-pre-wrap border-t border-[var(--border)]">{post}</p>
                 </details>
               ))}
             </div>
@@ -138,11 +138,11 @@ export default function LineageTree({ lineage }: { lineage: Lineage }) {
                 x1={0} x2={totalW}
                 y1={PAD_Y + g * ROW + NODE_H + 12}
                 y2={PAD_Y + g * ROW + NODE_H + 12}
-                stroke="#1c1e2a" strokeDasharray="4 4"
+                stroke="var(--border-faint)" strokeDasharray="4 4"
               />
               <text
                 x={6} y={PAD_Y + g * ROW + 14}
-                fill="#4b5563" fontSize={10} fontFamily="monospace"
+                fill="var(--text-faint)" fontSize={10} fontFamily="monospace"
               >
                 gen {g}
               </text>
@@ -189,21 +189,21 @@ export default function LineageTree({ lineage }: { lineage: Lineage }) {
                 onClick={() => setSelected(p)}
               >
                 <rect width={NODE_W} height={NODE_H} rx={10}
-                      fill="#13151f" stroke={stroke} strokeWidth={strokeW} />
+                      fill="var(--panel)" stroke={stroke} strokeWidth={strokeW} />
                 <rect x={0} y={0} width={4} height={NODE_H} rx={2} fill={meta.color} />
-                <text x={14} y={18} fill="#f9fafb" fontSize={11} fontFamily="ui-monospace, monospace">{p.id}</text>
+                <text x={14} y={18} fill="var(--text-primary)" fontSize={11} fontFamily="ui-monospace, monospace">{p.id}</text>
                 <text x={NODE_W - 10} y={18} textAnchor="end" fill={meta.color} fontSize={10}>
                   {meta.icon} {meta.label}
                 </text>
-                <text x={14} y={36} fill="#9ca3af" fontSize={10}>
+                <text x={14} y={36} fill="var(--text-secondary)" fontSize={10}>
                   {p.text.slice(0, 38)}{p.text.length > 38 ? "…" : ""}
                 </text>
                 {p.fitness.n_evals > 0 && (
                   <>
-                    <rect x={14} y={48} width={NODE_W - 28} height={4} rx={2} fill="#2a2d3e" />
+                    <rect x={14} y={48} width={NODE_W - 28} height={4} rx={2} fill="var(--border)" />
                     <rect x={14} y={48} width={(NODE_W - 28) * Math.min(1, fit / 10)} height={4} rx={2}
                           fill={p.is_pareto ? "#fbbf24" : meta.color} />
-                    <text x={14} y={68} fill="#6b7280" fontSize={10} fontFamily="ui-monospace, monospace">
+                    <text x={14} y={68} fill="var(--text-muted)" fontSize={10} fontFamily="ui-monospace, monospace">
                       avg {fit.toFixed(2)} · {p.fitness.n_evals} eval
                     </text>
                     {p.is_pareto && (
@@ -212,7 +212,7 @@ export default function LineageTree({ lineage }: { lineage: Lineage }) {
                   </>
                 )}
                 {!p.fitness.n_evals && (
-                  <text x={14} y={66} fill="#4b5563" fontSize={10}>pending eval...</text>
+                  <text x={14} y={66} fill="var(--text-faint)" fontSize={10}>ожидает оценки…</text>
                 )}
               </g>
             )
@@ -228,7 +228,7 @@ export default function LineageTree({ lineage }: { lineage: Lineage }) {
             {m.icon} {m.label}
           </span>
         ))}
-        <span className="flex items-center gap-1.5 text-amber-400 ml-auto">★ Pareto frontier</span>
+        <span className="flex items-center gap-1.5 text-amber-400 ml-auto">★ Pareto-граница</span>
       </div>
 
       {selected && <PromptDetailPanel p={selected} onClose={() => setSelected(null)} />}

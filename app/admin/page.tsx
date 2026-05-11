@@ -17,7 +17,7 @@ function LineageHistory({
     return (
       <div className="text-center py-12 text-gray-600">
         <div className="text-3xl mb-2">🧬</div>
-        <div>No lineages yet — run the first evolution below</div>
+        <div>Нет веток — запустите первую эволюцию</div>
       </div>
     )
   }
@@ -35,9 +35,9 @@ function LineageHistory({
                 {l.theme_label}
               </p>
               <div className="flex items-center gap-3 mt-2 text-xs text-gray-500">
-                <span>{l.prompts} prompts</span>
+                <span>{l.prompts} промптов</span>
                 <span>·</span>
-                <span>{l.generations} generations</span>
+                <span>{l.generations} поколений</span>
               </div>
             </div>
             {l.best_score !== null && (
@@ -102,9 +102,9 @@ export default function AdminPage() {
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-white">Prompt Evolution</h1>
+          <h1 className="text-2xl font-bold text-white">Эволюция промптов</h1>
           <p className="text-gray-400 text-sm mt-1">
-            Input Prompt → Models Generate → Judge Scores (Double-Shuffle) → Judge Mutates → New Prompt
+            Промпт → Модели генерируют → Судья оценивает (Double-Shuffle) → Судья мутирует → Новый промпт
           </p>
         </div>
         <div className="flex items-center gap-2 text-sm">
@@ -115,14 +115,14 @@ export default function AdminPage() {
                 : "bg-rose-900/30 text-rose-400"
             }`}
           >
-            {models.length > 0 ? `${models.length} models` : "no models"}
+            {models.length > 0 ? `${models.length} моделей` : "нет моделей"}
           </span>
           <button
             onClick={refreshModels}
             disabled={refreshing}
             className="text-gray-500 hover:text-gray-300 transition-colors text-xs border border-[#2a2d3e] px-2 py-1 rounded-lg"
           >
-            {refreshing ? "..." : "↺ Refresh"}
+            {refreshing ? "..." : "↺ Обновить"}
           </button>
         </div>
       </div>
@@ -131,14 +131,14 @@ export default function AdminPage() {
         {/* Left: EvolveForm + model list */}
         <div className="space-y-4">
           <div className="card">
-            <h3 className="font-semibold text-white mb-4">🧬 Start Evolution</h3>
+            <h3 className="font-semibold text-white mb-4">🧬 Запустить эволюцию</h3>
             <EvolveForm models={models} />
           </div>
 
           {models.length > 0 && (
             <div className="card">
               <div className="text-xs text-gray-500 uppercase tracking-wide mb-3">
-                Available models
+                Доступные модели
               </div>
               <div className="space-y-1.5 max-h-64 overflow-y-auto">
                 {models.map(m => (
@@ -158,11 +158,11 @@ export default function AdminPage() {
 
           {/* Criteria legend */}
           <div className="card text-xs text-gray-500 space-y-1">
-            <div className="text-gray-400 font-medium mb-2">Scoring criteria (1–10)</div>
-            <div><span className="text-gray-300">instruction_following</span> — every requirement addressed</div>
-            <div><span className="text-gray-300">logic_accuracy</span> — facts + real references</div>
-            <div><span className="text-gray-300">density</span> — no AI-filler or padding</div>
-            <div><span className="text-gray-300">specificity</span> — concrete details, numbers</div>
+            <div className="text-gray-400 font-medium mb-2">Критерии оценки (1–10)</div>
+            <div><span className="text-gray-300">instruction_following</span> — выполнение всех требований</div>
+            <div><span className="text-gray-300">logic_accuracy</span> — факты и реальные ссылки</div>
+            <div><span className="text-gray-300">density</span> — без воды и AI-заглушек</div>
+            <div><span className="text-gray-300">specificity</span> — конкретные детали, цифры</div>
           </div>
         </div>
 
@@ -187,7 +187,7 @@ export default function AdminPage() {
                   : "text-gray-500 hover:text-gray-300"
               }`}
             >
-              📋 Lineages
+              📋 Ветки
             </button>
           </div>
 

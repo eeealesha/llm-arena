@@ -25,8 +25,16 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="ru">
-      <body className="min-h-screen bg-[#0f1117] text-gray-100">
+    <html lang="ru" className="dark">
+      <body className="min-h-screen">
+        {/* Run before first paint: read saved theme and apply/remove .dark class */}
+        <script dangerouslySetInnerHTML={{ __html: `
+          try {
+            var t = localStorage.getItem('theme');
+            if (t === 'light') document.documentElement.classList.remove('dark');
+            else document.documentElement.classList.add('dark');
+          } catch(e) { document.documentElement.classList.add('dark'); }
+        `}} />
         <Nav />
         <SearchModal />
         <main className="max-w-7xl mx-auto px-4 py-8">{children}</main>
