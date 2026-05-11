@@ -377,6 +377,18 @@ def get_lineage(theme_slug: str):
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/lineage/<theme_slug>", methods=["DELETE"])
+def delete_lineage(theme_slug: str):
+    f = DATA_DIR / "prompt_lineage" / f"{theme_slug}.json"
+    if not f.exists():
+        return jsonify({"error": "not found"}), 404
+    try:
+        f.unlink()
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/tournament/<tournament_id>")
 def get_tournament(tournament_id: str):
     f = DATA_DIR / "tournaments" / f"{tournament_id}.json"

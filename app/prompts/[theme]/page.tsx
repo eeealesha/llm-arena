@@ -2,6 +2,7 @@ export const dynamic = "force-dynamic"
 import { notFound } from "next/navigation"
 import Link from "next/link"
 import LineageTree from "@/components/lineage-tree"
+import DeleteLineageButton from "@/components/delete-lineage-button"
 import type { Lineage } from "@/lib/lineage"
 
 async function fetchLineage(slug: string): Promise<Lineage | null> {
@@ -33,7 +34,10 @@ export default async function LineagePage({ params }: { params: { theme: string 
       </div>
 
       <div>
-        <h1 className="text-2xl font-bold text-white leading-snug">{lineage.theme_label}</h1>
+        <div className="flex items-start justify-between gap-4 flex-wrap">
+          <h1 className="text-2xl font-bold text-white leading-snug">{lineage.theme_label}</h1>
+          <DeleteLineageButton slug={lineage.theme_slug} label={lineage.theme_label} />
+        </div>
         <div className="flex flex-wrap gap-4 mt-3 text-sm">
           <Stat label="Промптов" value={lineage.prompts.length} />
           <Stat label="Поколений" value={lineage.generations.length} />

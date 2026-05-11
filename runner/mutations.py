@@ -14,6 +14,7 @@ callable supplied by the runner so they don't depend on HTTP details.
 """
 from __future__ import annotations
 import random
+import re
 from typing import Callable, Optional
 
 
@@ -80,72 +81,94 @@ def op_zero_order(
     return _clean(reply) if reply else None
 
 
+_THEME_ANCHOR = (
+    "ВАЖНО: исходная тема поста — «{theme}». "
+    "Новая инструкция ДОЛЖНА сохранить эту тему. "
+    "Мутация меняет ТОЛЬКО структуру, формат, стиль или фокус инструкции — "
+    "НИКОГДА не меняй предметную область."
+)
+
+
 def op_first_order(
     parent_text: str,
+    theme_label: str,
     ask: Callable[[str, str], Optional[str]],
     rng: random.Random,
 ) -> Optional[str]:
-    """Standard mutation: rephrase / improve the parent prompt."""
+    """Standard mutation: rephrase / improve the parent prompt within the theme."""
     mut = rng.choice(SEED_MUTATION_PROMPTS)
     sys = (
-        "Ты — эксперт по prompt engineering. Тебе дадут инструкцию и операцию мутации. "
+        "Ты — эксперт по prompt engineering. Тебе дадут тему, инструкцию и операцию мутации. "
         "Примени операцию и верни новую версию инструкции. "
-        "Ответь ТОЛЬКО самой инструкцией, 2-4 предложения, без объяснений."
+        "Ответь ТОЛЬКО самой инструкцией, 2-4 предложения, без объяснений.\n\n"
+        + _THEME_ANCHOR.format(theme=theme_label)
     )
-    user = f"ИНСТРУКЦИЯ:\n{parent_text}\n\nОПЕРАЦИЯ:\n{mut}"
+    user = f"ТЕМА: {theme_label}\n\nИНСТРУКЦИЯ:\n{parent_text}\n\nОПЕРАЦИЯ:\n{mut}"
     reply = ask(user, sys)
     return _clean(reply) if reply else None
 
 
 def op_hyper(
     parent_text: str,
+    theme_label: str,
     ask: Callable[[str, str], Optional[str]],
     rng: random.Random,
 ) -> Optional[str]:
-    """Self-referential: invent a new mutation-prompt, then apply it to the parent."""
-    # Step 1: mutate the meta-prompt
+    """Self-referential: invent a new META-mutation, then apply it to the parent.
+
+    Critical: the invented operation must only touch structure/style/format —
+    never the topic itself. We constrain this in both steps explicitly.
+    """
+    # Step 1: invent a new mutation operation — constrained to meta-changes only
     meta = rng.choice(SEED_MUTATION_PROMPTS)
     sys1 = (
         "Ты — эксперт по эволюционным алгоритмам и prompt engineering. "
-        "Тебе дадут операцию мутации промптов. Придумай НОВУЮ операцию, более радикальную "
-        "или более прицельную. Ответь одним предложением — самой операцией."
+        "Тебе дадут пример операции мутации промптов. Придумай НОВУЮ операцию.\n\n"
+        "СТРОГОЕ ОГРАНИЧЕНИЕ: операция должна менять ТОЛЬКО структуру, формат, тон, "
+        "длину или стиль изложения инструкции. Она НИКОГДА не должна менять предметную "
+        "область (тему). Запрещены операции вида «замени тему», «используй пример из X», "
+        "«перенеси на другую область».\n\n"
+        "Ответь одним предложением — самой операцией."
     )
     new_mut = ask(meta, sys1)
     if not new_mut:
         return None
     new_mut = _clean(new_mut)
 
-    # Step 2: apply the freshly-mutated operation to the parent
+    # Step 2: apply the freshly-invented operation to the parent — with theme anchor
     sys2 = (
         "Ты — эксперт по prompt engineering. Примени операцию мутации к инструкции. "
-        "Верни ТОЛЬКО новую инструкцию, 2-4 предложения, без преамбулы."
+        "Верни ТОЛЬКО новую инструкцию, 2-4 предложения, без преамбулы.\n\n"
+        + _THEME_ANCHOR.format(theme=theme_label)
     )
-    user = f"ИНСТРУКЦИЯ:\n{parent_text}\n\nОПЕРАЦИЯ:\n{new_mut}"
+    user = f"ТЕМА: {theme_label}\n\nИНСТРУКЦИЯ:\n{parent_text}\n\nОПЕРАЦИЯ:\n{new_mut}"
     reply = ask(user, sys2)
     if not reply:
         return None
-    text = _clean(reply)
-    return text
+    return _clean(reply)
 
 
 def op_lamarckian(
     parent_text: str,
+    theme_label: str,
     successful_output: str,
     ask: Callable[[str, str], Optional[str]],
     rng: random.Random,
 ) -> Optional[str]:
     """
-    Given a high-scoring post that was written using the parent prompt,
-    reverse-engineer the IDEAL prompt that would have produced it.
-    Encodes 'working knowledge' from outputs back into the prompt.
+    Reverse-engineer a prompt from a successful post. The prompt should be
+    generic enough to work for the theme, not just for this specific output.
     """
     sys = (
-        "Ты — эксперт по prompt engineering. Тебе дадут пример отличного поста. "
-        "Сформулируй инструкцию, которая идеально привела бы к такому посту. "
-        "Инструкция должна быть универсальной (не привязанной к конкретному содержанию). "
-        "Ответь ТОЛЬКО инструкцией, 2-4 предложения, без преамбулы."
+        "Ты — эксперт по prompt engineering. Тебе дадут тему и пример отличного поста. "
+        "Сформулируй инструкцию, которая идеально привела бы к такому посту НА ЛЮБОМ "
+        "примере по этой теме. Инструкция должна быть универсальной, а не пересказывать "
+        "конкретный пост.\n\n"
+        "Ответь ТОЛЬКО инструкцией, 2-4 предложения, без преамбулы.\n\n"
+        + _THEME_ANCHOR.format(theme=theme_label)
     )
     user = (
+        f"ТЕМА: {theme_label}\n\n"
         f"ИСХОДНАЯ ИНСТРУКЦИЯ:\n{parent_text}\n\n"
         f"УСПЕШНЫЙ ПОСТ (написан по этой инструкции):\n{successful_output[:1500]}\n\n"
         "Какая инструкция привела бы к такому результату? Сделай её сильнее исходной."
@@ -158,6 +181,27 @@ def op_lamarckian(
 ALL_OPERATORS = ["zero_order", "first_order", "hyper", "lamarckian"]
 
 
+def _theme_keywords(theme: str) -> set:
+    """Extract content keywords (longer than 3 chars) from theme for drift check."""
+    words = re.findall(r"[a-zA-Zа-яА-ЯёЁ]{4,}", theme.lower())
+    # Filter common stop-words (Russian + minimal English)
+    stop = {"что", "как", "это", "или", "для", "под", "ситуации", "напиши", "пост",
+            "writing", "about", "what", "which"}
+    return {w for w in words if w not in stop}
+
+
+def _drift_check(theme: str, new_prompt: str) -> bool:
+    """
+    Lightweight diversity guard: at least one content keyword from the theme
+    must appear in the new prompt. If theme has no extractable keywords,
+    skip the check (return True).
+    """
+    keywords = _theme_keywords(theme)
+    if not keywords:
+        return True
+    return any(k in new_prompt.lower() for k in keywords)
+
+
 def apply_operator(
     op: str,
     parent: dict,
@@ -167,17 +211,22 @@ def apply_operator(
 ) -> Optional[str]:
     """Dispatcher. Returns the mutated prompt text, or None on failure."""
     if op == "zero_order":
-        return op_zero_order(theme_label, ask, rng)
-    if op == "first_order":
-        return op_first_order(parent["text"], ask, rng)
-    if op == "hyper":
-        return op_hyper(parent["text"], ask, rng)
-    if op == "lamarckian":
-        # Pick the best sample output from the parent (highest avg fitness model)
+        result = op_zero_order(theme_label, ask, rng)
+    elif op == "first_order":
+        result = op_first_order(parent["text"], theme_label, ask, rng)
+    elif op == "hyper":
+        result = op_hyper(parent["text"], theme_label, ask, rng)
+    elif op == "lamarckian":
         outputs = parent.get("sample_outputs", {})
         if not outputs:
-            return op_first_order(parent["text"], ask, rng)  # fallback
-        # Just pick the longest output as a proxy for "best content"
-        best_output = max(outputs.values(), key=len)
-        return op_lamarckian(parent["text"], best_output, ask, rng)
-    raise ValueError(f"Unknown operator: {op}")
+            result = op_first_order(parent["text"], theme_label, ask, rng)  # fallback
+        else:
+            best_output = max(outputs.values(), key=len)
+            result = op_lamarckian(parent["text"], theme_label, best_output, ask, rng)
+    else:
+        raise ValueError(f"Unknown operator: {op}")
+
+    # Drift guard — discard mutations that wandered off-theme
+    if result and not _drift_check(theme_label, result):
+        return None
+    return result

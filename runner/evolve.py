@@ -198,9 +198,13 @@ def run_evolve(
                 return r
 
             new_text = apply_operator(op, parent, theme, _ask_text, rng)
-            if not new_text or len(new_text) < 20:
+            if not new_text:
                 _emit({"type": "mutation_failed", "gen": g, "op": op,
-                       "parent_id": parent["id"], "reason": "empty_or_short"})
+                       "parent_id": parent["id"], "reason": "empty_or_off_theme"})
+                continue
+            if len(new_text) < 20:
+                _emit({"type": "mutation_failed", "gen": g, "op": op,
+                       "parent_id": parent["id"], "reason": "too_short"})
                 continue
             if new_text == parent["text"]:
                 _emit({"type": "mutation_failed", "gen": g, "op": op,
