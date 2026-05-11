@@ -8,6 +8,7 @@ const links = [
   { href: "/tournaments", label: "Турниры",    sub: "история матчей" },
   { href: "/stats",      label: "Статистика", sub: "размер vs качество" },
   { href: "/compare",    label: "SBS",        sub: "сравни сам" },
+  { href: "/prompts",    label: "🧬 Эволюция", sub: "промпт-арена" },
   { href: "/blog",       label: "Блог",       sub: "статьи редакции" },
   { href: "/team",       label: "Редакция",   sub: "кто пишет" },
 ]

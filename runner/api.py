@@ -301,6 +301,82 @@ def list_tournaments():
             continue
     return jsonify(results)
 
+@app.route("/evolve", methods=["POST"])
+def run_evolve_endpoint():
+    with _lock:
+        if _proc is not None and _proc.poll() is None:
+            return jsonify({"error": "Runner is busy"}), 409
+
+    body = request.json or {}
+    theme       = (body.get("theme") or "").strip()
+    base_task   = (body.get("base_task") or "").strip()
+    judge       = body.get("judge")
+    contestants = body.get("contestants") or []
+    if not theme or not base_task or not judge or not contestants:
+        return jsonify({"error": "theme, base_task, judge, contestants required"}), 400
+
+    cmd = [
+        sys.executable, str(RUNNER_SCRIPT), "evolve",
+        "--theme", theme,
+        "--base-task", base_task,
+        "--judge", judge,
+        "--contestants", ",".join(contestants),
+        "--generations", str(body.get("generations", 2)),
+        "--candidates-per-gen", str(body.get("candidates_per_gen", 3)),
+        "--operators", body.get("operators", "zero_order,first_order,hyper,lamarckian"),
+        "--seed", str(body.get("seed", 42)),
+    ]
+
+    env = {
+        "DATA_DIR":      str(DATA_DIR),
+        "OLLAMA_HOST":   os.environ.get("OLLAMA_HOST", "https://ollama.com"),
+        "OLLAMA_API_KEY": os.environ.get("OLLAMA_API_KEY", ""),
+    }
+
+    _reset_state("running_evolve", theme=theme, started_at=datetime.now().isoformat())
+    thread = threading.Thread(target=_run_process, args=(cmd, env), daemon=True)
+    thread.start()
+    return jsonify({"ok": True, "status": "started"})
+
+
+@app.route("/lineage")
+def list_lineages_route():
+    """List all prompt-evolution themes."""
+    d = DATA_DIR / "prompt_lineage"
+    if not d.exists():
+        return jsonify([])
+    results = []
+    for f in sorted(d.glob("*.json")):
+        try:
+            with open(f, encoding="utf-8") as fp:
+                lin = json.load(fp)
+            scored = [p for p in lin.get("prompts", []) if p.get("fitness", {}).get("n_evals")]
+            best = max((p["fitness"]["avg_score"] for p in scored), default=None)
+            results.append({
+                "theme_slug":  lin["theme_slug"],
+                "theme_label": lin.get("theme_label", lin["theme_slug"]),
+                "updated_at":  lin.get("updated_at"),
+                "prompts":     len(lin.get("prompts", [])),
+                "generations": len(lin.get("generations", [])),
+                "best_score":  round(best, 2) if best is not None else None,
+            })
+        except Exception:
+            continue
+    return jsonify(results)
+
+
+@app.route("/lineage/<theme_slug>")
+def get_lineage(theme_slug: str):
+    f = DATA_DIR / "prompt_lineage" / f"{theme_slug}.json"
+    if not f.exists():
+        return jsonify({"error": "not found"}), 404
+    try:
+        with open(f, encoding="utf-8") as fp:
+            return jsonify(json.load(fp))
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/tournament/<tournament_id>")
 def get_tournament(tournament_id: str):
     f = DATA_DIR / "tournaments" / f"{tournament_id}.json"

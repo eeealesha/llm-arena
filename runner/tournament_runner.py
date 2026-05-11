@@ -757,6 +757,17 @@ def main():
     m_parser = sub.add_parser("models")
     m_parser.add_argument("--recheck", action="store_true")
 
+    # evolve subcommand (prompt evolution)
+    e_parser = sub.add_parser("evolve")
+    e_parser.add_argument("--theme", required=True, help="Theme label (slug derived from it)")
+    e_parser.add_argument("--base-task", required=True, help="Initial prompt text (seed gen 0)")
+    e_parser.add_argument("--judge", required=True)
+    e_parser.add_argument("--contestants", required=True, help="Comma-separated model names")
+    e_parser.add_argument("--generations", type=int, default=2)
+    e_parser.add_argument("--candidates-per-gen", type=int, default=3)
+    e_parser.add_argument("--operators", default="zero_order,first_order,hyper,lamarckian")
+    e_parser.add_argument("--seed", type=int, default=42)
+
     args = parser.parse_args()
 
     if args.cmd == "tournament":
@@ -766,6 +777,22 @@ def main():
     elif args.cmd == "models":
         available = get_available_models(force_recheck=args.recheck)
         emit({"type": "models_list", "models": available})
+    elif args.cmd == "evolve":
+        # Lazy import (avoids circular issues; evolve.py uses lineage.py + mutations.py)
+        from evolve import run_evolve
+        run_evolve(
+            theme=args.theme,
+            base_task=args.base_task,
+            contestants=[c.strip() for c in args.contestants.split(",") if c.strip()],
+            judge=args.judge,
+            generations=args.generations,
+            candidates_per_gen=args.candidates_per_gen,
+            operators=[o.strip() for o in args.operators.split(",") if o.strip()],
+            seed=args.seed,
+            data_dir=DATA_DIR,
+            ask=ask,
+            judge_timeout=JUDGE_TIMEOUT,
+        )
     else:
         parser.print_help()
 

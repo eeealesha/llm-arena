@@ -3,6 +3,7 @@ import { useState, useEffect } from "react"
 import Link from "next/link"
 import TournamentLive from "@/components/tournament-live"
 import ArticleForm from "@/components/article-form"
+import EvolveForm from "@/components/evolve-form"
 
 interface ModelInfo { name: string; size_gb: number }
 interface TournamentSummary { id: string; run_at: string; task: string; judge: string; winner: string | null; models: number }
@@ -135,6 +136,39 @@ function TournamentHistory({ tournaments }: { tournaments: TournamentSummary[] }
   )
 }
 
+function LineageHistory({ lineages }: { lineages: Array<{ theme_slug: string; theme_label: string; prompts: number; generations: number; best_score: number | null }> }) {
+  if (lineages.length === 0) {
+    return (
+      <div className="text-center py-12 text-gray-600">
+        <div className="text-3xl mb-2">🧬</div>
+        <div>Веток пока нет — запусти первую эволюцию</div>
+      </div>
+    )
+  }
+  return (
+    <div className="space-y-3">
+      {lineages.map(l => (
+        <Link key={l.theme_slug} href={`/prompts/${l.theme_slug}`}
+              className="block card hover:border-indigo-700/50 transition-colors group">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex-1 min-w-0">
+              <p className="text-sm text-gray-200 leading-snug font-medium truncate">{l.theme_label}</p>
+              <div className="flex items-center gap-3 mt-2 text-xs text-gray-500">
+                <span>{l.prompts} промптов</span>
+                <span>·</span>
+                <span>{l.generations} поколений</span>
+              </div>
+            </div>
+            {l.best_score !== null && (
+              <span className="shrink-0 text-xs text-amber-300 font-mono">{l.best_score.toFixed(2)}</span>
+            )}
+          </div>
+        </Link>
+      ))}
+    </div>
+  )
+}
+
 function ArticleHistory({ articles }: { articles: ArticleSummary[] }) {
   if (articles.length === 0) {
     return (
@@ -169,14 +203,16 @@ export default function AdminPage() {
   const [models, setModels]           = useState<ModelInfo[]>([])
   const [tournaments, setTournaments] = useState<TournamentSummary[]>([])
   const [articles, setArticles]       = useState<ArticleSummary[]>([])
-  const [mode, setMode]               = useState<"tournament" | "article">("tournament")
+  const [mode, setMode]               = useState<"tournament" | "article" | "evolve">("evolve")
   const [view, setView]               = useState<"live" | "history">("live")
+  const [lineages, setLineages]       = useState<Array<{ theme_slug: string; theme_label: string; prompts: number; generations: number; best_score: number | null }>>([])
   const [refreshing, setRefreshing]   = useState(false)
 
   useEffect(() => {
     fetch("/api/runner/models").then(r => r.json()).then(d => setModels(d.available || [])).catch(() => {})
     fetch("/api/runner/tournaments").then(r => r.json()).then(setTournaments).catch(() => {})
     fetch("/api/articles").then(r => r.json()).then(setArticles).catch(() => {})
+    fetch("/api/runner/lineage").then(r => r.json()).then(setLineages).catch(() => {})
   }, [])
 
   async function refreshModels() {
@@ -226,6 +262,14 @@ export default function AdminPage() {
       {/* Top-level mode toggle */}
       <div className="inline-flex p-1 rounded-xl bg-[#13151f] border border-[#2a2d3e]">
         <button
+          onClick={() => setMode("evolve")}
+          className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+            mode === "evolve" ? "bg-fuchsia-700 text-white" : "text-gray-400 hover:text-gray-200"
+          }`}
+        >
+          🧬 Эволюция
+        </button>
+        <button
           onClick={() => setMode("tournament")}
           className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
             mode === "tournament" ? "bg-emerald-700 text-white" : "text-gray-400 hover:text-gray-200"
@@ -246,12 +290,17 @@ export default function AdminPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left: form for selected mode */}
         <div className="space-y-4">
-          {mode === "tournament" ? (
-            <TournamentForm models={models} />
-          ) : (
+          {mode === "tournament" && <TournamentForm models={models} />}
+          {mode === "article" && (
             <div className="card">
               <h3 className="font-semibold text-white mb-4">Написать статью</h3>
               <ArticleForm models={models} />
+            </div>
+          )}
+          {mode === "evolve" && (
+            <div className="card">
+              <h3 className="font-semibold text-white mb-4">Запустить эволюцию промптов</h3>
+              <EvolveForm models={models} />
             </div>
           )}
 
@@ -287,13 +336,16 @@ export default function AdminPage() {
                 view === "history" ? "text-white border-b-2 border-indigo-400 -mb-px" : "text-gray-500 hover:text-gray-300"
               }`}
             >
-              📋 История {mode === "tournament" ? "турниров" : "статей"}
+              📋 {mode === "tournament" ? "История турниров"
+                  : mode === "article"   ? "История статей"
+                  :                        "Ветки эволюции"}
             </button>
           </div>
 
           {view === "live" && <TournamentLive />}
           {view === "history" && mode === "tournament" && <TournamentHistory tournaments={tournaments} />}
           {view === "history" && mode === "article"    && <ArticleHistory articles={articles} />}
+          {view === "history" && mode === "evolve"     && <LineageHistory lineages={lineages} />}
         </div>
       </div>
     </div>
