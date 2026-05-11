@@ -25,9 +25,13 @@ export default async function PromptsIndexPage() {
           </Link>
         </div>
         <p className="text-gray-400 text-sm mt-1 max-w-2xl">
-          Каждая ветка — отдельная тема. Промпты мутируют через операторы (
-          <span className="text-gray-300">zero-order, first-order, hyper-mutation, lamarckian</span>
-          ) и проходят оценку на пуле LLM. Лучшие сохраняются на Pareto frontier.
+          Each branch is one theme. Prompts mutate via 9 PromptBreeder operators (
+          <span className="text-gray-300">
+            zero-order, first-order, hyper, lamarckian, EDA, EDA-rank, lineage-based, crossover, workbook
+          </span>
+          ) and are evaluated with{" "}
+          <span className="text-gray-300">Blind Double-Shuffle</span> scoring on 4 utility criteria.
+          Pareto-optimal prompts survive.
         </p>
       </div>
 

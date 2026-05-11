@@ -17,7 +17,10 @@ from datetime import datetime
 from typing import Optional
 
 
-CRITERIA = ["engagement", "informativeness", "accuracy", "originality"]
+# Utility scoring criteria (1–10 each).
+# Ref: "Judging LLM-as-a-Judge" (Zheng et al. 2023); verbosity penalty from
+# "Lost in the Middle" (Liu et al. 2023); instruction-following from IFEval (Zhou et al. 2023).
+CRITERIA = ["instruction_following", "logic_accuracy", "density", "specificity"]
 LINEAGE_DIR_NAME = "prompt_lineage"
 
 
@@ -133,7 +136,7 @@ def mark_pareto(lineage: dict) -> None:
 # ── Fitness update ────────────────────────────────────────────────────────
 def update_fitness(prompt: dict, scores: list[dict]) -> None:
     """
-    scores: list of {model, criterion_scores: {engagement:..., ...}, post:...}
+    scores: list of {model, criterion_scores: {instruction_following:..., ...}, post:...}
     Maintains a running average.
     """
     if not scores:

@@ -52,14 +52,23 @@ export default async function LineagePage({ params }: { params: { theme: string 
       <LineageTree lineage={lineage} />
 
       <div className="card border-[#2a2d3e]">
-        <div className="text-xs uppercase tracking-wide text-gray-500 mb-2">Как читать</div>
+        <div className="text-xs uppercase tracking-wide text-gray-500 mb-2">How to read</div>
         <ul className="text-sm text-gray-400 space-y-1 leading-relaxed">
-          <li>• <span className="text-gray-300">Карточка</span> — один промпт-кандидат. ID, оператор, краткий текст, fitness-бар.</li>
-          <li>• <span className="text-amber-300">★ Pareto</span> — недоминируемые кандидаты (лучшие хотя бы по одному критерию).</li>
-          <li>• <span className="text-gray-300">Стрелка</span> — мутация: цвет = оператор, лейбл показывает тип.</li>
-          <li>• <span className="text-gray-300">gen N</span> — поколение. Чем ниже на полотне, тем позже.</li>
-          <li>• <span className="text-gray-300">Клик на карточку</span> — открывает детали: текст, fitness по критериям, образцы постов, feedback судьи.</li>
+          <li>• <span className="text-gray-300">Card</span> — one prompt candidate. ID, operator, short text, fitness bar.</li>
+          <li>• <span className="text-amber-300">★ Pareto</span> — non-dominated candidates (best on at least one criterion).</li>
+          <li>• <span className="text-gray-300">Arrow</span> — mutation: colour = operator type.</li>
+          <li>• <span className="text-gray-300">gen N</span> — generation. Lower = later.</li>
+          <li>• <span className="text-gray-300">Click a card</span> — details: text, per-criterion fitness, sample outputs, judge feedback.</li>
         </ul>
+        <div className="mt-3 pt-3 border-t border-[#2a2d3e] grid grid-cols-2 gap-1 text-xs text-gray-500">
+          <div><span className="text-gray-300">instruction_following</span> — every requirement addressed</div>
+          <div><span className="text-gray-300">logic_accuracy</span> — facts + real references</div>
+          <div><span className="text-gray-300">density</span> — no AI-filler or padding</div>
+          <div><span className="text-gray-300">specificity</span> — concrete details, numbers</div>
+        </div>
+        <div className="mt-2 text-xs text-gray-600">
+          Evaluation: Blind Double-Shuffle (each pair judged twice with positions swapped; inconsistent → tie)
+        </div>
       </div>
     </div>
   )

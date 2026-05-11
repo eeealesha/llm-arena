@@ -21,7 +21,7 @@ function FitnessBars({ fitness }: { fitness: PromptNode["fitness"] }) {
           <div key={c} className="flex items-center gap-1.5">
             <span className="text-[9px] text-gray-500 w-6 uppercase">{c.slice(0, 3)}</span>
             <div className="flex-1 h-1 bg-[#2a2d3e] rounded-full overflow-hidden">
-              <div className="h-full rounded-full" style={{ width: `${(val / 5) * 100}%`, backgroundColor: colors[i] }} />
+              <div className="h-full rounded-full" style={{ width: `${(val / 10) * 100}%`, backgroundColor: colors[i] }} />
             </div>
             <span className="text-[9px] font-mono text-gray-400 w-4 text-right">{val.toFixed(1)}</span>
           </div>
@@ -62,8 +62,11 @@ function PromptDetailPanel({ p, onClose }: { p: PromptNode; onClose: () => void 
             Fitness <span className="text-gray-600 normal-case">({p.fitness.n_evals} eval)</span>
           </div>
           <FitnessBars fitness={p.fitness} />
-          <div className="mt-2 text-xs text-gray-500">
-            Avg: <span className="text-indigo-300 font-mono">{p.fitness.avg_score.toFixed(2)}</span>
+          <div className="mt-2 flex items-center gap-4 text-xs text-gray-500">
+            <span>Avg: <span className="text-indigo-300 font-mono">{p.fitness.avg_score.toFixed(2)}</span></span>
+            {p.fitness.win_rate != null && (
+              <span>Win-rate: <span className="text-emerald-400 font-mono">{(p.fitness.win_rate * 100).toFixed(0)}%</span></span>
+            )}
           </div>
         </div>
 
@@ -198,7 +201,7 @@ export default function LineageTree({ lineage }: { lineage: Lineage }) {
                 {p.fitness.n_evals > 0 && (
                   <>
                     <rect x={14} y={48} width={NODE_W - 28} height={4} rx={2} fill="#2a2d3e" />
-                    <rect x={14} y={48} width={(NODE_W - 28) * Math.min(1, fit / 5)} height={4} rx={2}
+                    <rect x={14} y={48} width={(NODE_W - 28) * Math.min(1, fit / 10)} height={4} rx={2}
                           fill={p.is_pareto ? "#fbbf24" : meta.color} />
                     <text x={14} y={68} fill="#6b7280" fontSize={10} fontFamily="ui-monospace, monospace">
                       avg {fit.toFixed(2)} · {p.fitness.n_evals} eval

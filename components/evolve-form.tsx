@@ -3,12 +3,32 @@ import { useEffect, useState } from "react"
 
 interface ModelInfo { name: string; size_gb: number }
 
-const ALL_OPS = ["zero_order", "first_order", "hyper", "lamarckian"] as const
+const ALL_OPS = [
+  "zero_order", "first_order", "hyper", "lamarckian",
+  "eda", "eda_rank_index", "lineage_based", "crossover", "workbook",
+] as const
 const OP_LABELS: Record<typeof ALL_OPS[number], string> = {
-  zero_order:  "🎲 Zero-order",
-  first_order: "✏️ First-order",
-  hyper:       "🌀 Hyper-mutation",
-  lamarckian:  "🧬 Lamarckian",
+  zero_order:    "🎲 Zero-order",
+  first_order:   "✏️ First-order",
+  hyper:         "🌀 Hyper-mutation",
+  lamarckian:    "🧬 Lamarckian",
+  eda:           "📊 EDA",
+  eda_rank_index:"📊 EDA-rank",
+  lineage_based: "🌿 Lineage",
+  crossover:     "✂️ Crossover",
+  workbook:      "📓 Workbook",
+}
+
+const OP_TOOLTIPS: Record<typeof ALL_OPS[number], string> = {
+  zero_order:    "Generate fresh prompt from theme (ZOHM seed)",
+  first_order:   "Mutate parent with a sampled mutation-prompt (FOHM)",
+  hyper:         "Self-referential: invent a new mutation op, then apply it",
+  lamarckian:    "Reverse-engineer a prompt from the best output",
+  eda:           "Estimation of Distribution: synthesise from top-N prompts",
+  eda_rank_index:"EDA with explicit rank context — beat rank 1",
+  lineage_based: "Follow ancestor chain and extrapolate next generation",
+  crossover:     "Combine best elements of two parent prompts",
+  workbook:      "Reverse-engineer from multiple high-quality outputs",
 }
 
 function shortName(m: string) { return m.split(":")[0].split("/").pop() ?? m }
@@ -136,7 +156,7 @@ export default function EvolveForm({ models }: { models: ModelInfo[] }) {
           ))}
         </div>
         <p className="text-[11px] text-gray-600 mt-1">
-          Каждый кандидат-промпт оценивается всеми выбранными моделями.
+          Each candidate prompt is evaluated via round-robin Blind Double-Shuffle between all selected models.
         </p>
       </div>
 
@@ -147,6 +167,7 @@ export default function EvolveForm({ models }: { models: ModelInfo[] }) {
             <button
               key={op}
               onClick={() => toggleOp(op)}
+              title={OP_TOOLTIPS[op]}
               className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors ${
                 ops.includes(op)
                   ? "bg-indigo-600/30 border-indigo-600/50 text-indigo-200"

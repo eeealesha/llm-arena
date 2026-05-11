@@ -1,6 +1,18 @@
 """
-Flask API server for the tournament runner.
-Runs on port 5001 (internal, proxied through Next.js).
+Flask API server for the prompt-evolution runner.
+Runs on port 5001 (internal, proxied through Next.js /api/runner/*).
+
+Endpoints
+─────────
+POST /evolve              — start a prompt-evolution run
+GET  /status              — current runner state
+GET  /stream              — SSE event stream
+GET  /lineage             — list all prompt lineages
+GET  /lineage/<slug>      — full lineage JSON
+DELETE /lineage/<slug>    — delete a lineage file
+GET  /models              — cached model list
+POST /models/refresh      — re-ping all Ollama models
+GET  /events/history      — last 500 buffered SSE events
 """
 import json
 import os
@@ -16,19 +28,19 @@ from flask import Flask, Response, jsonify, request, stream_with_context
 
 app = Flask(__name__)
 
-BASE_DIR     = pathlib.Path(os.environ.get("BASE_DIR", "."))
-STATE_DIR    = BASE_DIR / "runner" / "state"
-STATE_FILE   = STATE_DIR / "current.json"
+BASE_DIR      = pathlib.Path(os.environ.get("BASE_DIR", "."))
+STATE_DIR     = BASE_DIR / "runner" / "state"
+STATE_FILE    = STATE_DIR / "current.json"
 RUNNER_SCRIPT = BASE_DIR / "runner" / "tournament_runner.py"
-DATA_DIR     = BASE_DIR / "data"
-ARTICLES_DIR = BASE_DIR / "public" / "data" / "articles"
+DATA_DIR      = BASE_DIR / "data"
 
 STATE_DIR.mkdir(parents=True, exist_ok=True)
 
-# ── State management ──────────────────────────────────────
+# ── State management ──────────────────────────────────────────────────────
 _lock   = threading.Lock()
-_proc   = None   # current subprocess
-_events = []     # buffered events for late-joining clients
+_proc   = None      # current subprocess
+_events: list[dict] = []
+
 
 def _read_state() -> dict:
     if STATE_FILE.exists():
@@ -36,19 +48,23 @@ def _read_state() -> dict:
             return json.load(f)
     return {"status": "idle"}
 
-def _write_state(state: dict):
+
+def _write_state(state: dict) -> None:
     STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
     with open(STATE_FILE, "w") as f:
         json.dump(state, f, ensure_ascii=False, indent=2)
 
-def _reset_state(status: str = "idle", **extra):
+
+def _reset_state(status: str = "idle", **extra) -> None:
     _write_state({"status": status, "updated_at": datetime.now().isoformat(), **extra})
 
-# ── SSE event broadcast ───────────────────────────────────
-_subscribers = []
+
+# ── SSE broadcast ─────────────────────────────────────────────────────────
+_subscribers: list[list] = []
 _subscribers_lock = threading.Lock()
 
-def _broadcast(event: dict):
+
+def _broadcast(event: dict) -> None:
     global _events
     _events.append(event)
     if len(_events) > 2000:
@@ -63,14 +79,16 @@ def _broadcast(event: dict):
         for q in dead:
             _subscribers.remove(q)
 
-def _run_process(cmd: list, env: dict):
+
+def _run_process(cmd: list[str], env: dict) -> None:
     global _proc, _events
     _events = []
     _broadcast({"type": "runner_start", "cmd": cmd[2] if len(cmd) > 2 else "unknown"})
 
     try:
         _proc = subprocess.Popen(
-            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            cmd,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             text=True, env={**os.environ, **env},
             cwd=str(BASE_DIR),
         )
@@ -85,23 +103,19 @@ def _run_process(cmd: list, env: dict):
                 event = {"type": "log", "message": line}
             _broadcast(event)
 
-            if event.get("type") == "done":
-                _reset_state("idle", last_tournament_id=event.get("tournament_id"),
-                             finished_at=datetime.now().isoformat())
-            elif event.get("type") == "article_done":
-                _reset_state("idle", last_article_id=event.get("id"),
-                             finished_at=datetime.now().isoformat())
+            if event.get("type") == "evolve_done":
+                _reset_state("idle", finished_at=datetime.now().isoformat())
             elif event.get("type") == "error":
                 _reset_state("error", error=event.get("message"))
 
         _proc.wait()
         if _proc.returncode != 0:
             err = _proc.stderr.read() if _proc.stderr else ""
-            _broadcast({"type": "error", "message": err or f"Exit code {_proc.returncode}"})
+            _broadcast({"type": "error",
+                        "message": err or f"Exit code {_proc.returncode}"})
             _reset_state("error", error=err[:500] if err else f"Exit {_proc.returncode}")
         else:
-            state = _read_state()
-            if state.get("status") not in ("idle", "error"):
+            if _read_state().get("status") not in ("idle", "error"):
                 _reset_state("idle")
 
     except Exception as e:
@@ -112,7 +126,8 @@ def _run_process(cmd: list, env: dict):
         with _lock:
             _proc = None
 
-# ── Routes ────────────────────────────────────────────────
+
+# ── Routes ─────────────────────────────────────────────────────────────────
 
 @app.route("/status")
 def status():
@@ -121,17 +136,16 @@ def status():
         state["running"] = _proc is not None and _proc.poll() is None
     return jsonify(state)
 
+
 @app.route("/stream")
 def stream():
-    """SSE stream — sends buffered events to new clients, then live events."""
-    client_queue = []
+    """SSE stream — replays buffered events first, then live events."""
+    client_queue: list = []
 
     def generate():
-        # Send all buffered events first
         for evt in list(_events):
             yield f"data: {json.dumps(evt, ensure_ascii=False)}\n\n"
 
-        # Register for live events
         with _subscribers_lock:
             _subscribers.append(client_queue)
 
@@ -157,57 +171,60 @@ def stream():
         stream_with_context(generate()),
         content_type="text/event-stream",
         headers={
-            "Cache-Control": "no-cache",
+            "Cache-Control":    "no-cache",
             "X-Accel-Buffering": "no",
-            "Connection": "keep-alive",
+            "Connection":       "keep-alive",
         },
     )
 
-@app.route("/run", methods=["POST"])
-def run_tournament():
+
+@app.route("/evolve", methods=["POST"])
+def run_evolve_endpoint():
     with _lock:
         if _proc is not None and _proc.poll() is None:
-            return jsonify({"error": "A tournament is already running"}), 409
+            return jsonify({"error": "Runner is busy"}), 409
 
     body = request.json or {}
-    task = body.get("task", "").strip()
-    if not task:
-        return jsonify({"error": "task is required"}), 400
+    theme       = (body.get("theme") or "").strip()
+    base_task   = (body.get("base_task") or "").strip()
+    judge       = body.get("judge")
+    contestants = body.get("contestants") or []
 
-    judge         = body.get("judge")
-    max_cont      = body.get("max_contestants")
-    swiss_rounds  = body.get("swiss_rounds")
-    commentator   = body.get("commentator")
-    iteration     = body.get("iteration", 1)
-    models_json   = body.get("models_json")
+    if not theme or not base_task or not judge or not contestants:
+        return jsonify({"error": "theme, base_task, judge, contestants required"}), 400
 
-    cmd = [sys.executable, str(RUNNER_SCRIPT), "tournament", "--task", task]
-    if judge:          cmd += ["--judge", judge]
-    if max_cont:       cmd += ["--max-contestants", str(max_cont)]
-    if swiss_rounds:   cmd += ["--swiss-rounds", str(swiss_rounds)]
-    if commentator:    cmd += ["--commentator", commentator]
-    if iteration:      cmd += ["--iteration", str(iteration)]
-    if models_json:    cmd += ["--models-json", models_json]
+    cmd = [
+        sys.executable, str(RUNNER_SCRIPT), "evolve",
+        "--theme",              theme,
+        "--base-task",          base_task,
+        "--judge",              judge,
+        "--contestants",        ",".join(contestants),
+        "--generations",        str(body.get("generations", 2)),
+        "--candidates-per-gen", str(body.get("candidates_per_gen", 3)),
+        "--operators",          body.get(
+            "operators",
+            "zero_order,first_order,hyper,lamarckian,"
+            "eda,eda_rank_index,lineage_based,crossover,workbook"
+        ),
+        "--seed",               str(body.get("seed", 42)),
+    ]
 
     env = {
-        "DATA_DIR":      str(DATA_DIR),
-        "ARTICLES_DIR":  str(ARTICLES_DIR),
-        "OLLAMA_HOST":   os.environ.get("OLLAMA_HOST", "https://ollama.com"),
+        "DATA_DIR":       str(DATA_DIR),
+        "OLLAMA_HOST":    os.environ.get("OLLAMA_HOST", "https://ollama.com"),
         "OLLAMA_API_KEY": os.environ.get("OLLAMA_API_KEY", ""),
     }
 
-    _reset_state("running", task=task, judge=judge or "auto",
-                 started_at=datetime.now().isoformat())
-    thread = threading.Thread(target=_run_process, args=(cmd, env), daemon=True)
-    thread.start()
-
+    _reset_state("running_evolve", theme=theme, started_at=datetime.now().isoformat())
+    threading.Thread(target=_run_process, args=(cmd, env), daemon=True).start()
     return jsonify({"ok": True, "status": "started"})
+
 
 @app.route("/cancel", methods=["POST"])
 def cancel():
     with _lock:
         if _proc is None or _proc.poll() is not None:
-            return jsonify({"error": "No tournament running"}), 409
+            return jsonify({"error": "Nothing running"}), 409
         try:
             _proc.send_signal(signal.SIGTERM)
         except Exception as e:
@@ -217,41 +234,6 @@ def cancel():
     _reset_state("idle", cancelled_at=datetime.now().isoformat())
     return jsonify({"ok": True})
 
-@app.route("/article", methods=["POST"])
-def run_article():
-    with _lock:
-        if _proc is not None and _proc.poll() is None:
-            return jsonify({"error": "Runner is busy"}), 409
-
-    body = request.json or {}
-    topic = body.get("topic", "").strip()
-    if not topic:
-        return jsonify({"error": "topic is required"}), 400
-
-    style      = body.get("style", "storyteller")
-    iterations = body.get("iterations", 2)
-    t_file     = body.get("tournament_file")
-    roles      = body.get("roles")
-
-    cmd = [sys.executable, str(RUNNER_SCRIPT), "article",
-           "--topic", topic, "--style", style, "--iterations", str(iterations)]
-    if roles:
-        cmd += ["--roles-json", json.dumps(roles, ensure_ascii=False)]
-    elif t_file:
-        cmd += ["--tournament-file", t_file]
-
-    env = {
-        "DATA_DIR":      str(DATA_DIR),
-        "ARTICLES_DIR":  str(ARTICLES_DIR),
-        "OLLAMA_HOST":   os.environ.get("OLLAMA_HOST", "https://ollama.com"),
-        "OLLAMA_API_KEY": os.environ.get("OLLAMA_API_KEY", ""),
-    }
-
-    _reset_state("running_article", topic=topic, started_at=datetime.now().isoformat())
-    thread = threading.Thread(target=_run_process, args=(cmd, env), daemon=True)
-    thread.start()
-
-    return jsonify({"ok": True, "status": "started"})
 
 @app.route("/models")
 def list_models():
@@ -260,6 +242,7 @@ def list_models():
         with open(cache_file) as f:
             return jsonify(json.load(f))
     return jsonify({"available": [], "blocked": [], "checked_at": None})
+
 
 @app.route("/models/refresh", methods=["POST"])
 def refresh_models():
@@ -274,74 +257,12 @@ def refresh_models():
         "OLLAMA_API_KEY": os.environ.get("OLLAMA_API_KEY", ""),
     }
     _reset_state("checking_models")
-    thread = threading.Thread(target=_run_process, args=(cmd, env), daemon=True)
-    thread.start()
+    threading.Thread(target=_run_process, args=(cmd, env), daemon=True).start()
     return jsonify({"ok": True})
-
-@app.route("/tournaments")
-def list_tournaments():
-    t_dir = DATA_DIR / "tournaments"
-    if not t_dir.exists():
-        return jsonify([])
-    files = sorted(t_dir.glob("*.json"), reverse=True)
-    results = []
-    for f in files[:50]:
-        try:
-            with open(f) as fp:
-                d = json.load(fp)
-            results.append({
-                "id":       f.stem,
-                "run_at":   d.get("run_at"),
-                "task":     d.get("task", "")[:120],
-                "judge":    d.get("judge"),
-                "winner":   d["ranking"][0]["model"] if d.get("ranking") else None,
-                "models":   len(d.get("ranking", [])),
-            })
-        except Exception:
-            continue
-    return jsonify(results)
-
-@app.route("/evolve", methods=["POST"])
-def run_evolve_endpoint():
-    with _lock:
-        if _proc is not None and _proc.poll() is None:
-            return jsonify({"error": "Runner is busy"}), 409
-
-    body = request.json or {}
-    theme       = (body.get("theme") or "").strip()
-    base_task   = (body.get("base_task") or "").strip()
-    judge       = body.get("judge")
-    contestants = body.get("contestants") or []
-    if not theme or not base_task or not judge or not contestants:
-        return jsonify({"error": "theme, base_task, judge, contestants required"}), 400
-
-    cmd = [
-        sys.executable, str(RUNNER_SCRIPT), "evolve",
-        "--theme", theme,
-        "--base-task", base_task,
-        "--judge", judge,
-        "--contestants", ",".join(contestants),
-        "--generations", str(body.get("generations", 2)),
-        "--candidates-per-gen", str(body.get("candidates_per_gen", 3)),
-        "--operators", body.get("operators", "zero_order,first_order,hyper,lamarckian"),
-        "--seed", str(body.get("seed", 42)),
-    ]
-
-    env = {
-        "DATA_DIR":      str(DATA_DIR),
-        "OLLAMA_HOST":   os.environ.get("OLLAMA_HOST", "https://ollama.com"),
-        "OLLAMA_API_KEY": os.environ.get("OLLAMA_API_KEY", ""),
-    }
-
-    _reset_state("running_evolve", theme=theme, started_at=datetime.now().isoformat())
-    thread = threading.Thread(target=_run_process, args=(cmd, env), daemon=True)
-    thread.start()
-    return jsonify({"ok": True, "status": "started"})
 
 
 @app.route("/lineage")
 def list_lineages_route():
-    """List all prompt-evolution themes."""
     d = DATA_DIR / "prompt_lineage"
     if not d.exists():
         return jsonify([])
@@ -350,7 +271,8 @@ def list_lineages_route():
         try:
             with open(f, encoding="utf-8") as fp:
                 lin = json.load(fp)
-            scored = [p for p in lin.get("prompts", []) if p.get("fitness", {}).get("n_evals")]
+            scored = [p for p in lin.get("prompts", [])
+                      if p.get("fitness", {}).get("n_evals")]
             best = max((p["fitness"]["avg_score"] for p in scored), default=None)
             results.append({
                 "theme_slug":  lin["theme_slug"],
@@ -389,25 +311,15 @@ def delete_lineage(theme_slug: str):
         return jsonify({"error": str(e)}), 500
 
 
-@app.route("/tournament/<tournament_id>")
-def get_tournament(tournament_id: str):
-    f = DATA_DIR / "tournaments" / f"{tournament_id}.json"
-    if not f.exists():
-        return jsonify({"error": "not found"}), 404
-    try:
-        with open(f) as fp:
-            return jsonify(json.load(fp))
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
 @app.route("/events/history")
 def events_history():
     return jsonify(_events[-500:])
 
+
 if __name__ == "__main__":
     import argparse
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--port", type=int, default=5001)
-    parser.add_argument("--host", default="127.0.0.1")
-    args = parser.parse_args()
+    p = argparse.ArgumentParser()
+    p.add_argument("--port", type=int, default=5001)
+    p.add_argument("--host", default="127.0.0.1")
+    args = p.parse_args()
     app.run(host=args.host, port=args.port, threaded=True)

@@ -1,19 +1,33 @@
 """
-Prompt-evolution main loop.
+Prompt-evolution main loop — Blind Double-Shuffle edition.
 
-Architecture (Promptbreeder + GEPA hybrid):
+Architecture (PromptBreeder + GEPA hybrid, Fernando et al. 2023):
   1. Load (or seed) lineage for the theme.
   2. For each generation:
        a) Pick N parents from the Pareto frontier (stochastic).
-       b) Apply a mutation operator to each parent → child prompt.
-       c) Minibatch evaluate each child:
-            - K contestant LLMs each write a post using the child prompt.
-            - Judge LLM scores every post on the 4 criteria + writes per-post feedback.
-       d) Update the child's fitness and add to the lineage.
-       e) Mark the Pareto frontier.
+       b) Apply a PromptBreeder mutation operator → child prompt.
+       c) Evaluate: every contestant generates a response, then a round-robin
+          Blind Double-Shuffle tournament between all responses determines
+          per-criterion scores and win-rates.
+       d) Update child fitness; recompute Pareto frontier.
   3. Persist lineage after every successful evaluation.
 
-The whole loop emits newline-delimited JSON events for the Flask /stream SSE feed.
+Evaluation details
+──────────────────
+Blind Double-Shuffle (anti-position-bias, Zheng et al. 2023 §4):
+  For every pair (response_A, response_B):
+    Round 1  →  judge sees [A, B]  →  verdict_1
+    Round 2  →  judge sees [B, A]  →  verdict_2 (normalised back to A/B labels)
+    If verdict_1 == verdict_2 (and not TIE)  →  that response wins.
+    Otherwise  →  TIE.
+
+Strict Utility Scoring (4 criteria, 1–10):
+  • instruction_following  — precision of adherence to every requirement
+  • logic_accuracy         — factual correctness; real citations raise score;
+                             hallucinations reduce it  (IFEval, Zhou et al. 2023)
+  • density                — information per word; penalises AI-filler, hedging,
+                             padding  (Liu et al. 2023 "Lost in the Middle")
+  • specificity            — concrete details, named examples, numbers vs vague claims
 """
 from __future__ import annotations
 import json
@@ -33,25 +47,45 @@ from lineage import (
     save_lineage,
     select_parents_for_mutation,
     slugify,
+    update_fitness,
 )
 from mutations import ALL_OPERATORS, apply_operator
 
 
-# ── Author / Judge prompts ────────────────────────────────────────────────
+# ── System prompts ────────────────────────────────────────────────────────
+
 SYSTEM_AUTHOR = (
-    "Ты — профессиональный автор. Пиши на русском, конкретно, без воды. "
-    "Возвращай ТОЛЬКО готовый пост, без преамбулы и пояснений."
+    "You are a professional writer. Be concrete, specific, and avoid filler. "
+    "Return ONLY the finished response — no preamble, no meta-commentary."
 )
 
-JUDGE_RUBRIC_REFLECTIVE = (
-    "Ты — строгий редактор. Оцени пост по 4 критериям от 1 до 5:\n"
-    "  • engagement — захватывает ли внимание\n"
-    "  • informativeness — конкретные факты, инструменты, цифры\n"
-    "  • accuracy — фактическая корректность, нет ли галлюцинаций\n"
-    "  • originality — свежий угол зрения\n\n"
-    "Ответь строго в JSON без markdown:\n"
-    '{"scores": {"engagement":X,"informativeness":X,"accuracy":X,"originality":X}, '
-    '"feedback": "1-2 предложения: что сильно, что слабо"}'
+# Utility scoring rubric — judge is shown TWO responses and scores both.
+# References baked into the rubric text so the judge model has full context.
+JUDGE_RUBRIC_UTILITY = (
+    "You are a strict evaluator. Score EACH response (A and B) on four criteria (1–10):\n\n"
+    "• instruction_following (1–10)\n"
+    "  Does the response address every explicit and implicit requirement in the prompt?\n"
+    "  Penalise for ignored constraints, off-topic tangents, missing structure.\n"
+    "  Ref: IFEval benchmark (Zhou et al., 2023).\n\n"
+    "• logic_accuracy (1–10)\n"
+    "  Factual correctness and sound reasoning. Claims backed by real, verifiable\n"
+    "  references score higher; fabricated citations or hallucinations score lower.\n"
+    "  Ref: TruthfulQA (Lin et al., 2022); FactScore (Min et al., 2023).\n\n"
+    "• density (1–10)\n"
+    "  Information density per word. HIGH score: every sentence adds value, no filler.\n"
+    "  LOW score: padded with phrases like 'Certainly!', 'It is important to note',\n"
+    "  'In conclusion', excessive hedging, or repetition.\n"
+    "  Ref: 'Lost in the Middle' (Liu et al., 2023).\n\n"
+    "• specificity (1–10)\n"
+    "  Concrete details: named tools, real numbers, specific examples.\n"
+    "  HIGH score: actionable and verifiable. LOW score: vague generalities.\n"
+    "  Ref: 'Specific and Actionable' from HELM (Liang et al., 2022).\n\n"
+    "Then state which response you PREFER overall.\n\n"
+    "Respond in strict JSON — no markdown wrapper:\n"
+    '{"scores_a": {"instruction_following": X, "logic_accuracy": X, "density": X, "specificity": X}, '
+    '"scores_b": {"instruction_following": X, "logic_accuracy": X, "density": X, "specificity": X}, '
+    '"preferred": "A" | "B" | "TIE", '
+    '"reasoning": "1–2 sentences citing specific evidence"}'
 )
 
 
@@ -59,17 +93,75 @@ def _emit(event: dict) -> None:
     print(json.dumps(event, ensure_ascii=False), flush=True)
 
 
-def _parse_judge_reply(reply: str) -> tuple[dict, str]:
-    """Extract scores dict and feedback text from judge reply. Falls back to neutral."""
+# ── Judge helpers ─────────────────────────────────────────────────────────
+
+def _clamp(v, lo=1, hi=10) -> int:
+    try:
+        return max(lo, min(hi, int(v)))
+    except (TypeError, ValueError):
+        return 5
+
+
+def _judge_once(
+    judge: str,
+    post_a: str,
+    post_b: str,
+    ask,
+    judge_timeout: int,
+) -> tuple[str, dict, dict, str]:
+    """Single judge pass. Returns (verdict, scores_a, scores_b, reasoning)."""
+    prompt = f"=== RESPONSE A ===\n{post_a}\n\n=== RESPONSE B ===\n{post_b}\n\nEvaluate both."
+    reply, _ = ask(judge, prompt, JUDGE_RUBRIC_UTILITY, judge_timeout)
+    if not reply:
+        neutral = {c: 5 for c in CRITERIA}
+        return "TIE", neutral, neutral, "no reply"
     try:
         cleaned = re.sub(r"```(?:json)?|```", "", reply).strip()
         data = json.loads(cleaned)
-        scores = {c: int(data["scores"].get(c, 3)) for c in CRITERIA}
-        feedback = str(data.get("feedback", "")).strip()[:300]
-        return scores, feedback
+        sa = {c: _clamp(data["scores_a"].get(c, 5)) for c in CRITERIA}
+        sb = {c: _clamp(data["scores_b"].get(c, 5)) for c in CRITERIA}
+        pref = str(data.get("preferred", "TIE")).upper().strip()
+        pref = pref if pref in ("A", "B", "TIE") else "TIE"
+        reasoning = str(data.get("reasoning", "")).strip()[:400]
+        return pref, sa, sb, reasoning
     except Exception:
-        return {c: 3 for c in CRITERIA}, "не удалось распарсить ответ судьи"
+        neutral = {c: 5 for c in CRITERIA}
+        return "TIE", neutral, neutral, (reply or "")[:150]
 
+
+def _judge_double_shuffle(
+    judge: str,
+    post_a: str,
+    post_b: str,
+    ask,
+    judge_timeout: int,
+) -> tuple[str, dict, dict, str]:
+    """
+    Blind Double-Shuffle comparison.
+
+    Round 1: judge sees [A, B]  → v1, sa1, sb1
+    Round 2: judge sees [B, A]  → v2_raw, sb2, sa2  (positions swapped)
+    Normalise v2: 'A' in round-2 position == original B, so flip labels.
+    Final verdict: consistent non-TIE → that verdict; else TIE.
+    Scores: average of both rounds (reduce noise).
+    """
+    v1, sa1, sb1, r1 = _judge_once(judge, post_a, post_b, ask, judge_timeout)
+    v2_raw, sb2, sa2, r2 = _judge_once(judge, post_b, post_a, ask, judge_timeout)
+
+    # Normalise v2 back to A/B labels of original order
+    v2 = {"A": "B", "B": "A", "TIE": "TIE"}.get(v2_raw, "TIE")
+
+    # Average scores across both rounds
+    scores_a = {c: round((sa1.get(c, 5) + sa2.get(c, 5)) / 2, 1) for c in CRITERIA}
+    scores_b = {c: round((sb1.get(c, 5) + sb2.get(c, 5)) / 2, 1) for c in CRITERIA}
+
+    # Consistency check
+    verdict = v1 if (v1 == v2 and v1 != "TIE") else "TIE"
+    reasoning = f"[pass-1:{v1}] {r1} | [pass-2(swapped)→{v2}] {r2}"
+    return verdict, scores_a, scores_b, reasoning
+
+
+# ── Core evaluation ───────────────────────────────────────────────────────
 
 def _evaluate_prompt(
     *,
@@ -77,47 +169,119 @@ def _evaluate_prompt(
     theme_label: str,
     contestants: list[str],
     judge: str,
-    ask,                 # ask(model, prompt, system, timeout) → (reply, elapsed)
+    ask,
     judge_timeout: int,
 ) -> list[dict]:
-    """Run minibatch: every contestant writes a post, judge scores them."""
-    scored = []
+    """
+    Evaluate a prompt via a round-robin Blind Double-Shuffle tournament.
+
+    1. Every contestant model generates a response to the prompt.
+    2. All pairs of responses are compared using double-shuffle (O(n²) judge calls × 2).
+    3. Each model gets per-criterion averaged scores + win-rate from all comparisons.
+
+    Returns a list of {model, criterion_scores, win_rate, feedback, post} dicts,
+    compatible with lineage.update_fitness().
+    """
+    # Step 1 — generate responses
+    responses: dict[str, str] = {}
     for model in contestants:
         _emit({"type": "minibatch_post_start", "model": model})
-        post, t = ask(model, f"Тема: {theme_label}\n\n{prompt_text}", SYSTEM_AUTHOR, 120)
-        if not post:
+        post, t = ask(model, f"Topic: {theme_label}\n\n{prompt_text}", SYSTEM_AUTHOR, 120)
+        if post:
+            responses[model] = post
+            _emit({"type": "minibatch_post_done",
+                   "model": model, "words": len(post.split()), "time": t})
+        else:
             _emit({"type": "minibatch_post_failed", "model": model})
-            continue
-        _emit({"type": "minibatch_post_done", "model": model, "words": len(post.split()), "time": t})
 
-        # Judge it
-        judge_user = f"=== ПОСТ ===\n{post}"
-        reply, _ = ask(judge, judge_user, JUDGE_RUBRIC_REFLECTIVE, judge_timeout)
-        if not reply:
+    models = list(responses.keys())
+
+    # Edge case: single response → can't do pairwise; score alone
+    if len(models) == 1:
+        m = models[0]
+        _emit({"type": "minibatch_single_response", "model": m})
+        # Use judge to score A vs a deliberately weak baseline so we still
+        # get meaningful criterion scores (baseline is a one-word stub)
+        stub = "(no response)"
+        _, sa, _, reasoning = _judge_double_shuffle(
+            judge, responses[m], stub, ask, judge_timeout
+        )
+        _emit({"type": "minibatch_judged", "model_a": m, "model_b": "baseline",
+               "verdict": "A", "scores_a": sa})
+        return [{
+            "model": m,
+            "criterion_scores": sa,
+            "win_rate": 1.0,
+            "feedback": reasoning,
+            "post": responses[m],
+        }]
+
+    if not models:
+        return []
+
+    # Step 2 — round-robin double-shuffle tournament
+    wins  = {m: 0   for m in models}
+    total = {m: 0   for m in models}
+    score_acc = {m: {c: [] for c in CRITERIA} for m in models}
+
+    for i in range(len(models)):
+        for j in range(i + 1, len(models)):
+            ma, mb = models[i], models[j]
+            verdict, sa, sb, reasoning = _judge_double_shuffle(
+                judge, responses[ma], responses[mb], ask, judge_timeout
+            )
+            _emit({
+                "type": "minibatch_judged",
+                "model_a": ma, "model_b": mb,
+                "verdict": verdict,
+                "scores_a": sa, "scores_b": sb,
+                "reasoning": reasoning[:200],
+            })
+            for c in CRITERIA:
+                score_acc[ma][c].append(sa[c])
+                score_acc[mb][c].append(sb[c])
+            total[ma] += 1
+            total[mb] += 1
+            if verdict == "A":
+                wins[ma] += 1
+            elif verdict == "B":
+                wins[mb] += 1
+
+    # Step 3 — aggregate
+    scored: list[dict] = []
+    for m in models:
+        n = total[m]
+        if n == 0:
             continue
-        scores, feedback = _parse_judge_reply(reply)
-        _emit({"type": "minibatch_judged", "model": model, "scores": scores, "feedback": feedback})
+        avg = {c: round(sum(score_acc[m][c]) / len(score_acc[m][c]), 2)
+               for c in CRITERIA}
+        wr = round(wins[m] / n, 2)
         scored.append({
-            "model": model,
-            "criterion_scores": scores,
-            "feedback": feedback,
-            "post": post,
+            "model": m,
+            "criterion_scores": avg,
+            "win_rate": wr,
+            "feedback": f"win_rate={wr:.0%} over {n} match(es)",
+            "post": responses[m],
         })
+
     return scored
 
 
 def _aggregate_feedback(scored: list[dict]) -> str:
-    """Compact feedback summary across all evaluations (used for next-gen reflection)."""
+    """Compact per-model feedback string for logging / Lamarckian operator."""
     if not scored:
         return ""
     parts = []
     for s in scored:
         short = s["model"].split(":")[0].split("/")[-1]
-        parts.append(f"[{short}] {s['feedback']}")
+        avg = round(sum(s["criterion_scores"].values()) / len(s["criterion_scores"]), 2)
+        wr  = s.get("win_rate", 0)
+        parts.append(f"[{short}] avg={avg} wr={wr:.0%}")
     return " · ".join(parts)[:600]
 
 
-# ── Main run ──────────────────────────────────────────────────────────────
+# ── Main evolution loop ────────────────────────────────────────────────────
+
 def run_evolve(
     *,
     theme: str,
@@ -129,7 +293,7 @@ def run_evolve(
     operators: list[str],
     seed: int,
     data_dir: pathlib.Path,
-    ask,                 # callable
+    ask,
     judge_timeout: int = 180,
 ):
     rng = random.Random(seed)
@@ -139,7 +303,7 @@ def run_evolve(
     if not lineage.get("theme_label"):
         lineage["theme_label"] = theme
 
-    # Seed generation 0 if empty
+    # ── Seed generation 0 if lineage is empty ─────────────────────────────
     if not lineage["prompts"]:
         seed_prompt = add_prompt(
             lineage,
@@ -148,38 +312,70 @@ def run_evolve(
             mutation_op="seed",
             generation=0,
         )
-        _emit({"type": "evolve_start", "theme": theme, "theme_slug": theme_slug,
-               "generations": generations, "candidates_per_gen": candidates_per_gen,
-               "contestants": contestants, "judge": judge, "operators": operators,
-               "seed_prompt_id": seed_prompt["id"]})
+        _emit({
+            "type": "evolve_start",
+            "theme": theme, "theme_slug": theme_slug,
+            "generations": generations,
+            "candidates_per_gen": candidates_per_gen,
+            "contestants": contestants,
+            "judge": judge,
+            "operators": operators,
+            "evaluation": "blind_double_shuffle",
+            "criteria": CRITERIA,
+            "seed_prompt_id": seed_prompt["id"],
+        })
 
-        # Evaluate seed
-        _emit({"type": "prompt_evaluating", "id": seed_prompt["id"],
-               "generation": 0, "op": "seed"})
+        _emit({"type": "prompt_evaluating",
+               "id": seed_prompt["id"], "generation": 0, "op": "seed"})
+
         scored = _evaluate_prompt(
-            prompt_text=seed_prompt["text"], theme_label=theme,
-            contestants=contestants, judge=judge, ask=ask, judge_timeout=judge_timeout,
+            prompt_text=seed_prompt["text"],
+            theme_label=theme,
+            contestants=contestants,
+            judge=judge,
+            ask=ask,
+            judge_timeout=judge_timeout,
         )
         if scored:
-            from lineage import update_fitness
             update_fitness(seed_prompt, scored)
+            # Store best win_rate in fitness for Lamarckian selection
+            seed_prompt["fitness"]["win_rate"] = round(
+                max(s.get("win_rate", 0) for s in scored), 2
+            )
             seed_prompt["feedback_summary"] = _aggregate_feedback(scored)
+
         mark_pareto(lineage)
         record_generation(lineage, 0, [seed_prompt["id"]])
         save_lineage(data_dir, lineage)
-        _emit({"type": "prompt_evaluated", "id": seed_prompt["id"],
-               "fitness": seed_prompt["fitness"], "is_pareto": seed_prompt["is_pareto"]})
+        _emit({
+            "type": "prompt_evaluated",
+            "id": seed_prompt["id"],
+            "fitness": seed_prompt["fitness"],
+            "is_pareto": seed_prompt["is_pareto"],
+        })
 
         start_gen = 1
     else:
-        # Resume: continue from highest generation + 1
+        # Resume: continue from the next generation after the highest recorded
         start_gen = max((g["gen"] for g in lineage["generations"]), default=0) + 1
-        _emit({"type": "evolve_start", "theme": theme, "theme_slug": theme_slug,
-               "generations": generations, "candidates_per_gen": candidates_per_gen,
-               "contestants": contestants, "judge": judge, "operators": operators,
-               "resumed_from_gen": start_gen})
+        _emit({
+            "type": "evolve_start",
+            "theme": theme, "theme_slug": theme_slug,
+            "generations": generations,
+            "candidates_per_gen": candidates_per_gen,
+            "contestants": contestants,
+            "judge": judge,
+            "operators": operators,
+            "evaluation": "blind_double_shuffle",
+            "criteria": CRITERIA,
+            "resumed_from_gen": start_gen,
+        })
 
-    from lineage import update_fitness
+    # ── Main loop ──────────────────────────────────────────────────────────
+    def _ask_text(user: str, system: str) -> Optional[str]:
+        """Adapter for mutation operators (signature without model/timeout)."""
+        r, _t = ask(judge, user, system, 120)
+        return r
 
     for g in range(start_gen, start_gen + generations):
         _emit({"type": "generation_start", "gen": g, "candidates": candidates_per_gen})
@@ -189,15 +385,13 @@ def run_evolve(
 
         for parent in parents:
             op = rng.choice(operators)
-            _emit({"type": "mutation_attempt", "gen": g, "op": op,
-                   "parent_id": parent["id"]})
+            _emit({"type": "mutation_attempt",
+                   "gen": g, "op": op, "parent_id": parent["id"]})
 
-            # Use the judge as the "mutator LLM" — strong reasoning available.
-            def _ask_text(user: str, system: str) -> Optional[str]:
-                r, _t = ask(judge, user, system, 120)
-                return r
+            new_text = apply_operator(
+                op, parent, theme, _ask_text, rng, lineage=lineage
+            )
 
-            new_text = apply_operator(op, parent, theme, _ask_text, rng)
             if not new_text:
                 _emit({"type": "mutation_failed", "gen": g, "op": op,
                        "parent_id": parent["id"], "reason": "empty_or_off_theme"})
@@ -218,34 +412,51 @@ def run_evolve(
                 mutation_op=op,
                 generation=g,
             )
-            _emit({"type": "mutation_done", "gen": g, "op": op,
-                   "parent_id": parent["id"], "id": child["id"],
+            _emit({"type": "mutation_done",
+                   "gen": g, "op": op,
+                   "parent_id": parent["id"],
+                   "id": child["id"],
                    "text": child["text"]})
 
-            _emit({"type": "prompt_evaluating", "id": child["id"],
-                   "generation": g, "op": op})
+            _emit({"type": "prompt_evaluating",
+                   "id": child["id"], "generation": g, "op": op})
+
             scored = _evaluate_prompt(
-                prompt_text=child["text"], theme_label=theme,
-                contestants=contestants, judge=judge,
-                ask=ask, judge_timeout=judge_timeout,
+                prompt_text=child["text"],
+                theme_label=theme,
+                contestants=contestants,
+                judge=judge,
+                ask=ask,
+                judge_timeout=judge_timeout,
             )
             if scored:
                 update_fitness(child, scored)
+                child["fitness"]["win_rate"] = round(
+                    max(s.get("win_rate", 0) for s in scored), 2
+                )
                 child["feedback_summary"] = _aggregate_feedback(scored)
+
             mark_pareto(lineage)
             save_lineage(data_dir, lineage)
             added_ids.append(child["id"])
-            _emit({"type": "prompt_evaluated", "id": child["id"],
-                   "fitness": child["fitness"], "is_pareto": child["is_pareto"]})
+
+            _emit({
+                "type": "prompt_evaluated",
+                "id": child["id"],
+                "fitness": child["fitness"],
+                "is_pareto": child["is_pareto"],
+            })
 
         record_generation(lineage, g, added_ids)
         save_lineage(data_dir, lineage)
 
-        # Snapshot of current Pareto frontier (for live UI)
         pareto = [p["id"] for p in lineage["prompts"] if p.get("is_pareto")]
-        _emit({"type": "generation_done", "gen": g, "added_ids": added_ids,
-               "pareto_ids": pareto})
+        _emit({"type": "generation_done",
+               "gen": g, "added_ids": added_ids, "pareto_ids": pareto})
 
-    _emit({"type": "evolve_done", "theme_slug": theme_slug,
-           "total_prompts": len(lineage["prompts"]),
-           "generations_completed": start_gen + generations - 1})
+    _emit({
+        "type": "evolve_done",
+        "theme_slug": theme_slug,
+        "total_prompts": len(lineage["prompts"]),
+        "generations_completed": start_gen + generations - 1,
+    })

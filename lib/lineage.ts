@@ -1,15 +1,23 @@
 // Prompt-evolution data types — mirrors runner/lineage.py JSON shape.
 
-export const CRITERIA = ["engagement", "informativeness", "accuracy", "originality"] as const
+// Utility scoring criteria — Blind Double-Shuffle evaluation (1–10 each).
+// Ref: IFEval (Zhou 2023), FactScore (Min 2023), Lost in the Middle (Liu 2023), HELM (Liang 2022).
+export const CRITERIA = [
+  "instruction_following",
+  "logic_accuracy",
+  "density",
+  "specificity",
+] as const
 export type Criterion = typeof CRITERIA[number]
 
 export interface PromptFitness {
-  engagement:      number
-  informativeness: number
-  accuracy:        number
-  originality:     number
-  avg_score:       number
-  n_evals:         number
+  instruction_following: number
+  logic_accuracy:        number
+  density:               number
+  specificity:           number
+  avg_score:             number
+  n_evals:               number
+  win_rate?:             number
 }
 
 export interface PromptNode {
@@ -110,9 +118,14 @@ export function layoutLineage(lineage: Lineage): {
 }
 
 export const OPERATOR_META: Record<string, { label: string; color: string; icon: string }> = {
-  seed:        { label: "Seed",        color: "#94a3b8", icon: "🌱" },
-  zero_order:  { label: "Zero-order",  color: "#60a5fa", icon: "🎲" },
-  first_order: { label: "First-order", color: "#a78bfa", icon: "✏️" },
-  hyper:       { label: "Hyper-mut",   color: "#f472b6", icon: "🌀" },
-  lamarckian:  { label: "Lamarckian",  color: "#fbbf24", icon: "🧬" },
+  seed:          { label: "Seed",         color: "#94a3b8", icon: "🌱" },
+  zero_order:    { label: "Zero-order",   color: "#60a5fa", icon: "🎲" },
+  first_order:   { label: "First-order",  color: "#a78bfa", icon: "✏️" },
+  hyper:         { label: "Hyper-mut",    color: "#f472b6", icon: "🌀" },
+  lamarckian:    { label: "Lamarckian",   color: "#fbbf24", icon: "🧬" },
+  eda:           { label: "EDA",          color: "#34d399", icon: "📊" },
+  eda_rank_index:{ label: "EDA-rank",     color: "#6ee7b7", icon: "📈" },
+  lineage_based: { label: "Lineage",      color: "#f97316", icon: "🌿" },
+  crossover:     { label: "Crossover",    color: "#e879f9", icon: "✂️" },
+  workbook:      { label: "Workbook",     color: "#fb923c", icon: "📓" },
 }
