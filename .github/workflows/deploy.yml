@@ -51,12 +51,15 @@ jobs:
           envs: OLLAMA_API_KEY
           script: |
             # Preserve server-generated data
-            if [ -d /opt/llm-arena/data/tournaments ]; then
-              cp -rn /opt/llm-arena/data/tournaments/. /opt/llm-arena-new/data/tournaments/
+            if [ -d /opt/llm-arena/data/prompt_lineage ]; then
+              mkdir -p /opt/llm-arena-new/data/prompt_lineage
+              cp -rn /opt/llm-arena/data/prompt_lineage/. /opt/llm-arena-new/data/prompt_lineage/
             fi
-            if [ -d /opt/llm-arena/public/data/articles ]; then
-              mkdir -p /opt/llm-arena-new/public/data/articles
-              cp -rn /opt/llm-arena/public/data/articles/. /opt/llm-arena-new/public/data/articles/
+            if [ -d /opt/llm-arena/data/models.json ]; then
+              cp -n /opt/llm-arena/data/models.json /opt/llm-arena-new/data/models.json
+            fi
+            if [ -f /opt/llm-arena/data/models.json ]; then
+              cp -n /opt/llm-arena/data/models.json /opt/llm-arena-new/data/models.json
             fi
             if [ -d /opt/llm-arena/runner/state ]; then
               cp -rn /opt/llm-arena/runner/state/. /opt/llm-arena-new/runner/state/

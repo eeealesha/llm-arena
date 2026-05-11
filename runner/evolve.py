@@ -59,33 +59,33 @@ SYSTEM_AUTHOR = (
     "Return ONLY the finished response — no preamble, no meta-commentary."
 )
 
-# Utility scoring rubric — judge is shown TWO responses and scores both.
-# References baked into the rubric text so the judge model has full context.
+# Utility scoring rubric — judge sees TWO responses and scores both.
+# Hard-anchored scale forces realistic score distribution (not grade inflation).
 JUDGE_RUBRIC_UTILITY = (
-    "You are a strict evaluator. Score EACH response (A and B) on four criteria (1–10):\n\n"
-    "• instruction_following (1–10)\n"
-    "  Does the response address every explicit and implicit requirement in the prompt?\n"
-    "  Penalise for ignored constraints, off-topic tangents, missing structure.\n"
-    "  Ref: IFEval benchmark (Zhou et al., 2023).\n\n"
-    "• logic_accuracy (1–10)\n"
-    "  Factual correctness and sound reasoning. Claims backed by real, verifiable\n"
-    "  references score higher; fabricated citations or hallucinations score lower.\n"
-    "  Ref: TruthfulQA (Lin et al., 2022); FactScore (Min et al., 2023).\n\n"
-    "• density (1–10)\n"
-    "  Information density per word. HIGH score: every sentence adds value, no filler.\n"
-    "  LOW score: padded with phrases like 'Certainly!', 'It is important to note',\n"
-    "  'In conclusion', excessive hedging, or repetition.\n"
-    "  Ref: 'Lost in the Middle' (Liu et al., 2023).\n\n"
-    "• specificity (1–10)\n"
-    "  Concrete details: named tools, real numbers, specific examples.\n"
-    "  HIGH score: actionable and verifiable. LOW score: vague generalities.\n"
-    "  Ref: 'Specific and Actionable' from HELM (Liang et al., 2022).\n\n"
-    "Then state which response you PREFER overall.\n\n"
-    "Respond in strict JSON — no markdown wrapper:\n"
+    "You are a STRICT evaluator. Your job is to find weaknesses, not to be polite.\n\n"
+    "SCORING SCALE — read carefully before scoring:\n"
+    "  1–2  Unacceptable: ignores the prompt, factual errors, pure filler\n"
+    "  3–4  Below average: mostly misses the mark, weak structure, vague\n"
+    "  5    Average: completes the task acceptably, nothing remarkable\n"
+    "  6–7  Good: clearly above average, concrete, mostly accurate\n"
+    "  8–9  Excellent: a professional would be proud, well-sourced, dense\n"
+    "  10   Exceptional: cites real verifiable sources, zero filler, could be published\n\n"
+    "IMPORTANT: Most responses score 4–7. Giving 8+ requires a specific reason.\n"
+    "Do NOT cluster scores at 8–10 — this defeats the purpose of evaluation.\n\n"
+    "Score EACH response (A and B) on four criteria:\n\n"
+    "• instruction_following — every explicit and implicit requirement addressed?\n"
+    "  Penalise: ignored constraints, off-topic tangents, missing structure.\n\n"
+    "• logic_accuracy — factual correctness, sound reasoning.\n"
+    "  Real verifiable references → higher. Hallucinations, made-up stats → lower.\n\n"
+    "• density — information per word. Penalise: 'Certainly!', 'It is important to note',\n"
+    "  'In conclusion', excessive hedging, repetition, padding.\n\n"
+    "• specificity — concrete named tools, real numbers, actionable details.\n"
+    "  Penalise: vague generalities, 'some experts say', unverifiable claims.\n\n"
+    "Respond in strict JSON — no markdown:\n"
     '{"scores_a": {"instruction_following": X, "logic_accuracy": X, "density": X, "specificity": X}, '
     '"scores_b": {"instruction_following": X, "logic_accuracy": X, "density": X, "specificity": X}, '
     '"preferred": "A" | "B" | "TIE", '
-    '"reasoning": "1–2 sentences citing specific evidence"}'
+    '"reasoning": "2–3 sentences citing SPECIFIC weaknesses, not just positives"}'
 )
 
 
@@ -268,16 +268,22 @@ def _evaluate_prompt(
 
 
 def _aggregate_feedback(scored: list[dict]) -> str:
-    """Compact per-model feedback string for logging / Lamarckian operator."""
+    """Human-readable summary used as lineage feedback_summary."""
     if not scored:
         return ""
+    # Sort by avg score descending
+    ranked = sorted(scored, key=lambda s: sum(s["criterion_scores"].values()), reverse=True)
     parts = []
-    for s in scored:
+    for s in ranked:
         short = s["model"].split(":")[0].split("/")[-1]
-        avg = round(sum(s["criterion_scores"].values()) / len(s["criterion_scores"]), 2)
+        cs = s["criterion_scores"]
+        avg = round(sum(cs.values()) / len(cs), 1)
         wr  = s.get("win_rate", 0)
-        parts.append(f"[{short}] avg={avg} wr={wr:.0%}")
-    return " · ".join(parts)[:600]
+        wins_str = f"won {int(wr * 100)}% of comparisons"
+        # highlight top criteria
+        top_c = max(cs, key=lambda c: cs[c])
+        parts.append(f"{short}: avg {avg}/10, {wins_str}, best on {top_c}")
+    return "; ".join(parts)[:800]
 
 
 # ── Main evolution loop ────────────────────────────────────────────────────
@@ -285,7 +291,7 @@ def _aggregate_feedback(scored: list[dict]) -> str:
 def run_evolve(
     *,
     theme: str,
-    base_task: str,
+    seeds: list[str],          # one or more initial prompts (gen 0)
     contestants: list[str],
     judge: str,
     generations: int,
@@ -305,13 +311,7 @@ def run_evolve(
 
     # ── Seed generation 0 if lineage is empty ─────────────────────────────
     if not lineage["prompts"]:
-        seed_prompt = add_prompt(
-            lineage,
-            text=base_task,
-            parent_id=None,
-            mutation_op="seed",
-            generation=0,
-        )
+        seed_ids: list[str] = []
         _emit({
             "type": "evolve_start",
             "theme": theme, "theme_slug": theme_slug,
@@ -322,37 +322,47 @@ def run_evolve(
             "operators": operators,
             "evaluation": "blind_double_shuffle",
             "criteria": CRITERIA,
-            "seed_prompt_id": seed_prompt["id"],
+            "n_seeds": len(seeds),
         })
 
-        _emit({"type": "prompt_evaluating",
-               "id": seed_prompt["id"], "generation": 0, "op": "seed"})
-
-        scored = _evaluate_prompt(
-            prompt_text=seed_prompt["text"],
-            theme_label=theme,
-            contestants=contestants,
-            judge=judge,
-            ask=ask,
-            judge_timeout=judge_timeout,
-        )
-        if scored:
-            update_fitness(seed_prompt, scored)
-            # Store best win_rate in fitness for Lamarckian selection
-            seed_prompt["fitness"]["win_rate"] = round(
-                max(s.get("win_rate", 0) for s in scored), 2
+        for seed_text in seeds:
+            seed_prompt = add_prompt(
+                lineage,
+                text=seed_text.strip(),
+                parent_id=None,
+                mutation_op="seed",
+                generation=0,
             )
-            seed_prompt["feedback_summary"] = _aggregate_feedback(scored)
+            _emit({"type": "prompt_evaluating",
+                   "id": seed_prompt["id"], "generation": 0, "op": "seed"})
+
+            scored = _evaluate_prompt(
+                prompt_text=seed_prompt["text"],
+                theme_label=theme,
+                contestants=contestants,
+                judge=judge,
+                ask=ask,
+                judge_timeout=judge_timeout,
+            )
+            if scored:
+                update_fitness(seed_prompt, scored)
+                seed_prompt["fitness"]["win_rate"] = round(
+                    max(s.get("win_rate", 0) for s in scored), 2
+                )
+                seed_prompt["feedback_summary"] = _aggregate_feedback(scored)
+
+            seed_ids.append(seed_prompt["id"])
+            _emit({
+                "type": "prompt_evaluated",
+                "id": seed_prompt["id"],
+                "fitness": seed_prompt["fitness"],
+                "is_pareto": seed_prompt.get("is_pareto", False),
+                "text": seed_prompt["text"],
+            })
 
         mark_pareto(lineage)
-        record_generation(lineage, 0, [seed_prompt["id"]])
+        record_generation(lineage, 0, seed_ids)
         save_lineage(data_dir, lineage)
-        _emit({
-            "type": "prompt_evaluated",
-            "id": seed_prompt["id"],
-            "fitness": seed_prompt["fitness"],
-            "is_pareto": seed_prompt["is_pareto"],
-        })
 
         start_gen = 1
     else:

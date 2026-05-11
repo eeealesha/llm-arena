@@ -7,15 +7,28 @@ interface RoundEnd { round: number; standings: TsEntry[]; comment: string | null
 interface ArticleStep { step: string; model: string; words?: number; time?: number; done: boolean }
 interface ArticleState { topic: string; style: string; steps: ArticleStep[]; done: { id: string; words: number } | null }
 
+interface CriteriaScores { instruction_following: number; logic_accuracy: number; density: number; specificity: number }
+interface Comparison {
+  model_a: string; model_b: string
+  verdict: "A" | "B" | "TIE"
+  scores_a: Partial<CriteriaScores>; scores_b: Partial<CriteriaScores>
+  reasoning?: string
+}
 interface EvolveEntry {
   id?: string
   parent_id?: string
   op: string
   generation: number
   status: "evaluating" | "evaluated" | "failed"
-  fitness?: { avg_score: number; n_evals: number }
+  fitness?: { avg_score: number; n_evals: number; win_rate?: number }
   is_pareto?: boolean
   text?: string
+  comparisons?: Comparison[]
+}
+interface ResponseItem {
+  model: string
+  status: "writing" | "done" | "failed"
+  words?: number
 }
 interface EvolveState {
   theme: string
@@ -24,17 +37,31 @@ interface EvolveState {
   current_gen: number
   contestants: string[]
   judge: string
+  criteria: string[]
   entries: EvolveEntry[]
-  current_minibatch: Array<{ model: string; status: "writing" | "done" | "judged" | "failed"; words?: number; scores?: Record<string, number>; feedback?: string }>
+  active_responses: ResponseItem[]
+  active_comparisons: Comparison[]
   done: boolean
 }
 
-const OP_META: Record<string, { icon: string; label: string; color: string }> = {
-  seed:        { icon: "🌱", label: "Seed",        color: "text-gray-400" },
-  zero_order:  { icon: "🎲", label: "Zero-order",  color: "text-blue-300" },
-  first_order: { icon: "✏️", label: "First-order", color: "text-purple-300" },
-  hyper:       { icon: "🌀", label: "Hyper-mut",   color: "text-pink-300" },
-  lamarckian:  { icon: "🧬", label: "Lamarckian",  color: "text-amber-300" },
+const OP_META: Record<string, { icon: string; label: string; color: string; desc: string }> = {
+  seed:          { icon: "🌱", label: "Seed",        color: "text-gray-400",   desc: "Initial prompt" },
+  zero_order:    { icon: "🎲", label: "Zero-order",  color: "text-blue-300",   desc: "Fresh prompt generated from theme only" },
+  first_order:   { icon: "✏️", label: "First-order", color: "text-purple-300", desc: "Parent mutated using a sampled mutation instruction" },
+  hyper:         { icon: "🌀", label: "Hyper-mut",   color: "text-pink-300",   desc: "Self-referential: invented a new mutation op, then applied it" },
+  lamarckian:    { icon: "🧬", label: "Lamarckian",  color: "text-amber-300",  desc: "Reverse-engineered from the best response" },
+  eda:           { icon: "📊", label: "EDA",         color: "text-emerald-300",desc: "Synthesised from patterns in top-N population prompts" },
+  eda_rank_index:{ icon: "📈", label: "EDA-rank",    color: "text-teal-300",   desc: "Generated to beat the current rank-1 prompt" },
+  lineage_based: { icon: "🌿", label: "Lineage",     color: "text-orange-300", desc: "Extrapolated from the full ancestor chain" },
+  crossover:     { icon: "✂️", label: "Crossover",   color: "text-fuchsia-300",desc: "Best elements of two parent prompts combined" },
+  workbook:      { icon: "📓", label: "Workbook",    color: "text-rose-300",   desc: "Reverse-engineered from multiple high-quality outputs" },
+}
+
+const CRITERIA_LABELS: Record<string, string> = {
+  instruction_following: "Follows instructions",
+  logic_accuracy:        "Factual accuracy",
+  density:               "No filler / dense",
+  specificity:           "Concrete & specific",
 }
 
 const STEP_META: Record<string, { icon: string; label: string }> = {
@@ -139,6 +166,142 @@ function MatchCard({ m }: { m: MatchEvent }) {
   )
 }
 
+function ScoreBars({ scores, max = 10 }: { scores: Partial<CriteriaScores>; max?: number }) {
+  const COLORS = ["#6366f1", "#10b981", "#f59e0b", "#ec4899"]
+  const keys = Object.keys(scores) as (keyof CriteriaScores)[]
+  return (
+    <div className="space-y-0.5">
+      {keys.map((c, i) => {
+        const v = scores[c] ?? 0
+        return (
+          <div key={c} className="flex items-center gap-1.5">
+            <span className="text-[9px] text-gray-600 w-14 truncate">{CRITERIA_LABELS[c] ?? c}</span>
+            <div className="flex-1 h-1.5 bg-[#2a2d3e] rounded-full overflow-hidden">
+              <div className="h-full rounded-full transition-all"
+                   style={{ width: `${(v / max) * 100}%`, backgroundColor: COLORS[i % COLORS.length] }} />
+            </div>
+            <span className="text-[10px] font-mono text-gray-400 w-5 text-right">{v}</span>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+function ComparisonCard({ c }: { c: Comparison }) {
+  const [open, setOpen] = useState(false)
+  const verdictColor = c.verdict === "TIE" ? "text-amber-400" : "text-emerald-400"
+  const verdictLabel =
+    c.verdict === "A" ? `${shortName(c.model_a)} wins` :
+    c.verdict === "B" ? `${shortName(c.model_b)} wins` : "Tie"
+  const avgA = c.scores_a ? Object.values(c.scores_a).reduce((a, b) => a + b, 0) / Object.values(c.scores_a).length : 0
+  const avgB = c.scores_b ? Object.values(c.scores_b).reduce((a, b) => a + b, 0) / Object.values(c.scores_b).length : 0
+
+  return (
+    <div className="border border-[#2a2d3e] rounded-lg overflow-hidden text-xs">
+      <button
+        className="w-full flex items-center gap-2 px-3 py-2 hover:bg-[#1a1d27] transition-colors text-left"
+        onClick={() => setOpen(!open)}
+      >
+        <span className="text-gray-500">⚖️</span>
+        <span className="text-gray-400">{shortName(c.model_a)}</span>
+        <span className="text-gray-600">vs</span>
+        <span className="text-gray-400">{shortName(c.model_b)}</span>
+        <span className={`ml-auto font-medium ${verdictColor}`}>{verdictLabel}</span>
+        <span className="text-gray-600 ml-1">{open ? "▲" : "▼"}</span>
+      </button>
+      {open && (
+        <div className="border-t border-[#2a2d3e] bg-[#0a0c12] px-3 py-3 space-y-3">
+          {c.reasoning && (
+            <p className="text-gray-400 text-xs leading-relaxed italic">{c.reasoning}</p>
+          )}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <div className="text-gray-300 font-medium mb-1.5">{shortName(c.model_a)} <span className="text-gray-600 font-normal">(avg {avgA.toFixed(1)})</span></div>
+              <ScoreBars scores={c.scores_a} />
+            </div>
+            <div>
+              <div className="text-gray-300 font-medium mb-1.5">{shortName(c.model_b)} <span className="text-gray-600 font-normal">(avg {avgB.toFixed(1)})</span></div>
+              <ScoreBars scores={c.scores_b} />
+            </div>
+          </div>
+          <p className="text-[10px] text-gray-600 mt-1">
+            Blind Double-Shuffle: both positions tested, verdict only if consistent.
+          </p>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function PromptCard({ e, isActive }: { e: EvolveEntry; isActive?: boolean }) {
+  const [open, setOpen] = useState(false)
+  const meta = OP_META[e.op] ?? { icon: "•", label: e.op, color: "text-gray-300", desc: "" }
+  const avgScore = e.fitness?.avg_score ?? 0
+
+  return (
+    <div className={`border rounded-lg overflow-hidden text-sm transition-colors ${
+      e.is_pareto   ? "border-amber-700/50 bg-amber-950/10" :
+      isActive      ? "border-fuchsia-700/40 bg-fuchsia-950/10" :
+      e.status === "failed" ? "border-rose-900/30 opacity-50" :
+      "border-[#2a2d3e]"
+    }`}>
+      {/* Header row */}
+      <div className="flex items-center gap-2 px-3 py-2.5">
+        <span title={meta.desc}>{meta.icon}</span>
+        <span className={`text-xs font-medium ${meta.color}`} title={meta.desc}>{meta.label}</span>
+        {e.is_pareto && (
+          <span title="Pareto-optimal: no other prompt dominates this on ALL criteria simultaneously"
+                className="text-[10px] px-1.5 py-0.5 rounded bg-amber-900/40 text-amber-300 cursor-help">
+            ★ Pareto
+          </span>
+        )}
+        {isActive && (
+          <span className="text-[10px] text-fuchsia-400 inline-flex items-center gap-1 ml-1">
+            <span className="w-1.5 h-1.5 rounded-full bg-fuchsia-400 animate-pulse" />
+            evaluating…
+          </span>
+        )}
+        {e.fitness && (
+          <span className="ml-auto text-xs font-mono text-gray-400">
+            {avgScore.toFixed(1)}
+            {e.fitness.win_rate != null && (
+              <span className="text-gray-600 ml-1">· {(e.fitness.win_rate * 100).toFixed(0)}%wr</span>
+            )}
+          </span>
+        )}
+        {e.text && (
+          <button onClick={() => setOpen(!open)} className="text-gray-600 hover:text-gray-400 text-xs ml-1">
+            {open ? "▲" : "▼"}
+          </button>
+        )}
+      </div>
+
+      {/* Score bar */}
+      {e.fitness && (
+        <div className="px-3 pb-2">
+          <div className="h-1.5 bg-[#2a2d3e] rounded-full overflow-hidden">
+            <div className="h-full bg-indigo-500 transition-all" style={{ width: `${(avgScore / 10) * 100}%` }} />
+          </div>
+        </div>
+      )}
+
+      {/* Expanded: prompt text + comparisons */}
+      {open && (
+        <div className="border-t border-[#2a2d3e] px-3 py-3 bg-[#0a0c12] space-y-3">
+          <p className="text-xs text-gray-300 leading-relaxed whitespace-pre-wrap">{e.text}</p>
+          {e.comparisons && e.comparisons.length > 0 && (
+            <div className="space-y-1.5">
+              <div className="text-[10px] uppercase text-gray-600 tracking-wide">Judge comparisons</div>
+              {e.comparisons.map((c, i) => <ComparisonCard key={i} c={c} />)}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function EvolvePipeline({ evolve }: { evolve: EvolveState }) {
   const byGen: Record<number, EvolveEntry[]> = {}
   for (const e of evolve.entries) {
@@ -146,124 +309,119 @@ function EvolvePipeline({ evolve }: { evolve: EvolveState }) {
   }
   const gens = Object.keys(byGen).map(Number).sort((a, b) => a - b)
   const evaluated = evolve.entries.filter(e => e.status === "evaluated")
-  const bestSoFar = evaluated.sort((a, b) => (b.fitness?.avg_score ?? 0) - (a.fitness?.avg_score ?? 0))[0]
+  const bestSoFar = [...evaluated].sort((a, b) => (b.fitness?.avg_score ?? 0) - (a.fitness?.avg_score ?? 0))[0]
   const paretoCount = evaluated.filter(e => e.is_pareto).length
+  const activeEntry = evolve.entries.find(e => e.status === "evaluating")
 
   return (
     <div className="space-y-4">
+
+      {/* Header */}
       <div className="card border-fuchsia-700/40 bg-fuchsia-950/10">
-        <div className="text-xs uppercase tracking-wide text-fuchsia-400 mb-1">
-          🧬 Эволюция промптов
-        </div>
+        <div className="text-xs uppercase tracking-wide text-fuchsia-400 mb-1">🧬 Prompt Evolution</div>
         <div className="text-white font-semibold leading-snug">{evolve.theme}</div>
-        <div className="mt-2 flex flex-wrap gap-3 text-xs text-gray-500">
-          <span>Поколений: <span className="text-gray-300">{evolve.generations}</span></span>
-          <span>·</span>
-          <span>Текущее: <span className="text-gray-300">{evolve.current_gen}</span></span>
-          <span>·</span>
-          <span>Pareto: <span className="text-amber-300 font-medium">{paretoCount}</span></span>
+        <div className="mt-2 flex flex-wrap gap-4 text-xs text-gray-500">
+          <span>Generation <span className="text-gray-300 font-medium">{evolve.current_gen}</span> / {evolve.generations}</span>
+          <span>
+            <span title="Pareto-optimal: prompts where no other prompt is better on ALL criteria at once" className="cursor-help">
+              ★ Pareto
+            </span>: <span className="text-amber-300 font-medium">{paretoCount}</span>
+          </span>
           {bestSoFar?.fitness && (
-            <>
-              <span>·</span>
-              <span>Best avg: <span className="text-indigo-300 font-mono">{bestSoFar.fitness.avg_score.toFixed(2)}</span></span>
-            </>
+            <span>Best avg: <span className="text-indigo-300 font-mono">{bestSoFar.fitness.avg_score.toFixed(2)}/10</span></span>
           )}
+          <span>Judge: <span className="text-gray-300">{shortName(evolve.judge)}</span></span>
         </div>
+        {evolve.criteria?.length > 0 && (
+          <div className="mt-2 flex flex-wrap gap-1">
+            {evolve.criteria.map(c => (
+              <span key={c} title={CRITERIA_LABELS[c]} className="text-[10px] px-1.5 py-0.5 rounded bg-[#1a1d27] border border-[#2a2d3e] text-gray-500">
+                {c}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
 
-      {/* Per-generation columns */}
-      <div className="space-y-4">
+      {/* Currently generating responses */}
+      {(evolve.active_responses.length > 0 || evolve.active_comparisons.length > 0) && !evolve.done && (
+        <div className="card border-fuchsia-800/30 bg-[#0f0d18] space-y-3">
+          <div className="text-xs uppercase tracking-wide text-fuchsia-400">
+            ⚡ Evaluating {activeEntry ? `"${(activeEntry.text ?? "").slice(0, 60)}…"` : "…"}
+          </div>
+
+          {/* Step 1: models writing */}
+          {evolve.active_responses.length > 0 && (
+            <div>
+              <div className="text-[10px] text-gray-600 uppercase tracking-wide mb-1.5">Step 1 — Generate responses</div>
+              <div className="space-y-1">
+                {evolve.active_responses.map((r, i) => (
+                  <div key={i} className="flex items-center gap-2 text-xs">
+                    <span className={r.status === "done" ? "text-emerald-400" : r.status === "failed" ? "text-rose-400" : "text-fuchsia-400 animate-pulse"}>
+                      {r.status === "done" ? "✓" : r.status === "failed" ? "✗" : "•"}
+                    </span>
+                    <span className="text-gray-300">{shortName(r.model)}</span>
+                    {r.words && <span className="text-gray-600 ml-auto">{r.words} words</span>}
+                    {r.status === "writing" && <span className="text-fuchsia-500 ml-auto text-[10px] animate-pulse">writing…</span>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Step 2: double-shuffle comparisons */}
+          {evolve.active_comparisons.length > 0 && (
+            <div>
+              <div className="text-[10px] text-gray-600 uppercase tracking-wide mb-1.5">
+                Step 2 — Blind Double-Shuffle comparisons
+              </div>
+              <div className="space-y-1.5">
+                {evolve.active_comparisons.map((c, i) => <ComparisonCard key={i} c={c} />)}
+              </div>
+              <p className="text-[10px] text-gray-600 mt-1.5">
+                Each pair is compared twice with positions swapped. Inconsistent result → Tie.
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Per-generation prompt cards */}
+      <div className="space-y-5">
         {gens.map(g => (
           <div key={g}>
             <div className="flex items-center gap-3 mb-2">
-              <div className="text-xs font-bold text-fuchsia-400 uppercase tracking-widest">gen {g}</div>
+              <div className="text-xs font-bold text-fuchsia-400 uppercase tracking-widest">
+                {g === 0 ? "gen 0 — seed" : `gen ${g}`}
+              </div>
               <div className="flex-1 h-px bg-[#2a2d3e]" />
-              <span className="text-xs text-gray-600">{byGen[g].length} кандидатов</span>
+              <span className="text-xs text-gray-600">{byGen[g].length} prompt{byGen[g].length > 1 ? "s" : ""}</span>
             </div>
-            <div className="grid sm:grid-cols-2 gap-2">
-              {byGen[g].map((e, i) => {
-                const meta = OP_META[e.op] ?? { icon: "•", label: e.op, color: "text-gray-300" }
-                const isCurrent = e.status === "evaluating"
-                return (
-                  <div key={`${e.id ?? "x"}-${i}`} className={`border rounded-lg p-3 text-sm ${
-                    e.is_pareto ? "border-amber-700/50 bg-amber-950/10" :
-                    isCurrent ? "border-fuchsia-700/40 bg-fuchsia-950/10" :
-                    e.status === "failed" ? "border-rose-900/30 opacity-60" :
-                    "border-[#2a2d3e]"
-                  }`}>
-                    <div className="flex items-center gap-2 mb-1.5">
-                      <span className="text-base">{meta.icon}</span>
-                      <span className={`text-xs font-medium ${meta.color}`}>{meta.label}</span>
-                      {e.id && <span className="text-xs text-gray-600 font-mono ml-auto">{e.id}</span>}
-                      {e.is_pareto && <span className="text-[10px] uppercase tracking-wider px-1 py-0.5 rounded bg-amber-900/40 text-amber-300">★</span>}
-                    </div>
-                    {e.text && (
-                      <p className="text-xs text-gray-400 leading-snug line-clamp-2 mb-1.5">{e.text}</p>
-                    )}
-                    {isCurrent && (
-                      <div className="text-xs text-fuchsia-400 inline-flex items-center gap-1">
-                        <span className="w-1.5 h-1.5 rounded-full bg-fuchsia-400 animate-pulse" />
-                        evaluating...
-                      </div>
-                    )}
-                    {e.fitness && (
-                      <div className="flex items-center gap-2 text-xs">
-                        <div className="flex-1 h-1 bg-[#2a2d3e] rounded-full overflow-hidden">
-                          <div className="h-full bg-indigo-500" style={{ width: `${(e.fitness.avg_score / 5) * 100}%` }} />
-                        </div>
-                        <span className="font-mono text-gray-400">{e.fitness.avg_score.toFixed(2)}</span>
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
+            <div className="space-y-2">
+              {byGen[g].map((e, i) => (
+                <PromptCard key={`${e.id ?? "x"}-${i}`} e={e} isActive={e.status === "evaluating"} />
+              ))}
             </div>
           </div>
         ))}
       </div>
 
-      {/* Current minibatch */}
-      {evolve.current_minibatch.length > 0 && !evolve.done && (
-        <div className="card border-fuchsia-800/30 bg-[#0f0d18]">
-          <div className="text-xs uppercase tracking-wide text-fuchsia-400 mb-2">Текущая оценка</div>
-          <div className="space-y-1.5">
-            {evolve.current_minibatch.map((m, i) => {
-              const total = m.scores ? Object.values(m.scores).reduce((a, b) => a + b, 0) : null
-              return (
-                <div key={`${m.model}-${i}`} className="flex items-center gap-2 text-xs">
-                  <span className={
-                    m.status === "judged" ? "text-emerald-400"
-                    : m.status === "done" ? "text-fuchsia-300"
-                    : m.status === "failed" ? "text-rose-400"
-                    : "text-gray-500"
-                  }>
-                    {m.status === "judged" ? "✓" : m.status === "failed" ? "✗" : "•"}
-                  </span>
-                  <span className="text-gray-300 flex-1 truncate">{shortName(m.model)}</span>
-                  {m.words && <span className="text-gray-500">{m.words}w</span>}
-                  {total !== null && <span className="text-indigo-300 font-mono">{total}/20</span>}
-                  {m.feedback && (
-                    <span className="text-gray-500 text-[11px] italic truncate max-w-[40%]" title={m.feedback}>
-                      {m.feedback}
-                    </span>
-                  )}
-                </div>
-              )
-            })}
-          </div>
-        </div>
-      )}
-
+      {/* Done */}
       {evolve.done && (
-        <div className="card border-emerald-800/50 bg-emerald-950/20 text-center py-5">
-          <div className="text-3xl mb-1">🏁</div>
-          <div className="text-white font-bold">Эволюция завершена</div>
-          <div className="text-emerald-400 text-xs mt-1">
-            {evolve.entries.length} промптов · {paretoCount} на Pareto frontier
+        <div className="card border-emerald-800/50 bg-emerald-950/20 text-center py-6">
+          <div className="text-3xl mb-2">🏁</div>
+          <div className="text-white font-bold text-lg">Evolution complete</div>
+          <div className="text-gray-400 text-sm mt-1">
+            {evolve.entries.length} prompts evaluated · {paretoCount} Pareto-optimal
           </div>
+          {bestSoFar?.fitness && (
+            <div className="text-emerald-400 text-sm mt-1">
+              Best prompt avg score: <span className="font-mono font-bold">{bestSoFar.fitness.avg_score.toFixed(2)}/10</span>
+            </div>
+          )}
           <a href={`/prompts/${evolve.theme_slug}`}
-             className="mt-3 inline-block px-4 py-1.5 rounded-lg bg-indigo-600 text-white text-sm hover:bg-indigo-500 transition-colors">
-            Открыть дерево →
+             className="mt-4 inline-block px-5 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-500 transition-colors">
+            View full tree →
           </a>
         </div>
       )}
@@ -450,98 +608,136 @@ export default function TournamentLive() {
         setConfig(null)
         setArticle(null)
         setEvolve(null)
+        setStatusMsg("")
         break
       case "evolve_start":
         setStatus("running")
         setEvolve({
-          theme: evt.theme as string || "",
-          theme_slug: evt.theme_slug as string || "",
-          generations: evt.generations as number ?? 0,
-          current_gen: 0,
-          contestants: (evt.contestants as string[]) || [],
-          judge: evt.judge as string || "",
-          entries: [],
-          current_minibatch: [],
-          done: false,
+          theme:            evt.theme as string || "",
+          theme_slug:       evt.theme_slug as string || "",
+          generations:      evt.generations as number ?? 0,
+          current_gen:      0,
+          contestants:      (evt.contestants as string[]) || [],
+          judge:            evt.judge as string || "",
+          criteria:         (evt.criteria as string[]) || [],
+          entries:          [],
+          active_responses: [],
+          active_comparisons: [],
+          done:             false,
         })
-        setStatusMsg(`Эволюция: ${evt.theme as string || ""}`)
+        setStatusMsg(`Evolution: ${evt.theme as string || ""}`)
         break
       case "generation_start":
-        setEvolve(s => s ? { ...s, current_gen: evt.gen as number, current_minibatch: [] } : s)
-        setStatusMsg(`Поколение ${evt.gen}: ${evt.candidates} кандидатов`)
+        setEvolve(s => s ? { ...s, current_gen: evt.gen as number, active_responses: [], active_comparisons: [] } : s)
+        setStatusMsg(`Generation ${evt.gen}: ${evt.candidates} candidates`)
         break
       case "mutation_attempt":
-        setStatusMsg(`Мутация ${evt.op}: ${(evt.parent_id as string).slice(0, 8)}...`)
+        setStatusMsg(`Mutating (${evt.op as string})…`)
         break
       case "mutation_done":
         setEvolve(s => s ? {
           ...s,
           entries: [...s.entries, {
-            id: evt.id as string,
-            parent_id: evt.parent_id as string,
-            op: evt.op as string,
+            id:         evt.id as string,
+            parent_id:  evt.parent_id as string,
+            op:         evt.op as string,
             generation: evt.gen as number,
-            status: "evaluating" as const,
-            text: evt.text as string,
+            status:     "evaluating" as const,
+            text:       evt.text as string,
+            comparisons: [],
           }],
-          current_minibatch: [],
+          active_responses:   [],
+          active_comparisons: [],
         } : s)
+        setStatusMsg(`Mutation done (${evt.op as string}) → evaluating…`)
         break
       case "mutation_failed":
-        setStatusMsg(`✗ ${evt.op}: ${evt.reason as string || ""}`)
+        setStatusMsg(`Mutation failed (${evt.op as string}): ${evt.reason as string || ""}`)
         break
       case "prompt_evaluating":
-        setEvolve(s => s ? { ...s, current_minibatch: [] } : s)
-        setStatusMsg(`Оценка ${(evt.id as string)?.slice(0, 8) ?? ""} (${evt.op as string})`)
+        setEvolve(s => {
+          if (!s) return s
+          // Ensure seed prompts (no mutation_done event) get an entry
+          const hasEntry = s.entries.some(e => e.id === evt.id)
+          if (!hasEntry) {
+            return {
+              ...s,
+              entries: [...s.entries, {
+                id:         evt.id as string,
+                op:         evt.op as string || "seed",
+                generation: evt.generation as number ?? 0,
+                status:     "evaluating" as const,
+                comparisons: [],
+              }],
+              active_responses:   [],
+              active_comparisons: [],
+            }
+          }
+          return { ...s, active_responses: [], active_comparisons: [] }
+        })
+        setStatusMsg(`Evaluating prompt ${(evt.id as string)?.slice(0, 8) ?? ""}…`)
         break
       case "minibatch_post_start":
         setEvolve(s => s ? {
           ...s,
-          current_minibatch: [...s.current_minibatch, { model: evt.model as string, status: "writing" as const }],
+          active_responses: [...s.active_responses, { model: evt.model as string, status: "writing" as const }],
         } : s)
         break
       case "minibatch_post_done":
         setEvolve(s => s ? {
           ...s,
-          current_minibatch: s.current_minibatch.map(m =>
-            m.model === evt.model ? { ...m, status: "done" as const, words: evt.words as number } : m
+          active_responses: s.active_responses.map(r =>
+            r.model === evt.model ? { ...r, status: "done" as const, words: evt.words as number } : r
           ),
         } : s)
         break
       case "minibatch_post_failed":
         setEvolve(s => s ? {
           ...s,
-          current_minibatch: s.current_minibatch.map(m =>
-            m.model === evt.model ? { ...m, status: "failed" as const } : m
+          active_responses: s.active_responses.map(r =>
+            r.model === evt.model ? { ...r, status: "failed" as const } : r
           ),
         } : s)
         break
-      case "minibatch_judged":
-        setEvolve(s => s ? {
-          ...s,
-          current_minibatch: s.current_minibatch.map(m =>
-            m.model === evt.model ? {
-              ...m,
-              status: "judged" as const,
-              scores: evt.scores as Record<string, number>,
-              feedback: evt.feedback as string,
-            } : m
-          ),
-        } : s)
+      case "minibatch_judged": {
+        const cmp: Comparison = {
+          model_a:   evt.model_a as string,
+          model_b:   evt.model_b as string,
+          verdict:   evt.verdict as "A" | "B" | "TIE",
+          scores_a:  (evt.scores_a as Partial<CriteriaScores>) || {},
+          scores_b:  (evt.scores_b as Partial<CriteriaScores>) || {},
+          reasoning: evt.reasoning as string | undefined,
+        }
+        setEvolve(s => {
+          if (!s) return s
+          const activeId = s.entries.find(e => e.status === "evaluating")?.id
+          return {
+            ...s,
+            active_comparisons: [...s.active_comparisons, cmp],
+            entries: s.entries.map(e => e.id === activeId
+              ? { ...e, comparisons: [...(e.comparisons ?? []), cmp] }
+              : e
+            ),
+          }
+        })
         break
+      }
       case "prompt_evaluated":
         setEvolve(s => s ? {
           ...s,
           entries: s.entries.map(e => e.id === evt.id ? {
             ...e,
-            status: "evaluated" as const,
-            fitness: evt.fitness as { avg_score: number; n_evals: number },
+            status:    "evaluated" as const,
+            fitness:   evt.fitness as { avg_score: number; n_evals: number; win_rate?: number },
             is_pareto: evt.is_pareto as boolean,
+            text:      (evt.text as string | undefined) ?? e.text,
           } : e),
+          active_responses:   [],
+          active_comparisons: [],
         } : s)
         break
       case "generation_done":
-        setStatusMsg(`Поколение ${evt.gen} завершено`)
+        setStatusMsg(`Generation ${evt.gen as number} complete`)
         break
       case "evolve_done":
         setEvolve(s => s ? { ...s, done: true, theme_slug: evt.theme_slug as string || s.theme_slug } : s)

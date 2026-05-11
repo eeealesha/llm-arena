@@ -186,17 +186,23 @@ def run_evolve_endpoint():
 
     body = request.json or {}
     theme       = (body.get("theme") or "").strip()
-    base_task   = (body.get("base_task") or "").strip()
     judge       = body.get("judge")
     contestants = body.get("contestants") or []
 
-    if not theme or not base_task or not judge or not contestants:
-        return jsonify({"error": "theme, base_task, judge, contestants required"}), 400
+    # Support both old single base_task and new multiple seeds
+    seeds_raw = body.get("seeds") or []
+    if not seeds_raw and body.get("base_task"):
+        seeds_raw = [body["base_task"]]
+    seeds = [s.strip() for s in seeds_raw if s and s.strip()]
 
+    if not theme or not seeds or not judge or not contestants:
+        return jsonify({"error": "theme, seeds (or base_task), judge, contestants required"}), 400
+
+    import json as _json
     cmd = [
         sys.executable, str(RUNNER_SCRIPT), "evolve",
         "--theme",              theme,
-        "--base-task",          base_task,
+        "--seeds-json",         _json.dumps(seeds, ensure_ascii=False),
         "--judge",              judge,
         "--contestants",        ",".join(contestants),
         "--generations",        str(body.get("generations", 2)),

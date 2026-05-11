@@ -137,8 +137,8 @@ def main() -> None:
     e = sub.add_parser("evolve", help="Run prompt evolution loop")
     e.add_argument("--theme",              required=True,
                    help="Theme label (slug derived automatically)")
-    e.add_argument("--base-task",          required=True,
-                   help="Seed prompt text (generation 0)")
+    e.add_argument("--seeds-json",         required=True,
+                   help="JSON array of seed prompt texts (generation 0)")
     e.add_argument("--judge",              required=True,
                    help="Model used as judge and mutator")
     e.add_argument("--contestants",        required=True,
@@ -157,10 +157,11 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.cmd == "evolve":
+        import json as _json
         from evolve import run_evolve
         run_evolve(
             theme=args.theme,
-            base_task=args.base_task,
+            seeds=_json.loads(args.seeds_json),
             contestants=[c.strip() for c in args.contestants.split(",") if c.strip()],
             judge=args.judge,
             generations=args.generations,

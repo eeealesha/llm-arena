@@ -7,42 +7,45 @@ const ALL_OPS = [
   "zero_order", "first_order", "hyper", "lamarckian",
   "eda", "eda_rank_index", "lineage_based", "crossover", "workbook",
 ] as const
-const OP_LABELS: Record<typeof ALL_OPS[number], string> = {
-  zero_order:    "🎲 Zero-order",
-  first_order:   "✏️ First-order",
-  hyper:         "🌀 Hyper-mutation",
-  lamarckian:    "🧬 Lamarckian",
-  eda:           "📊 EDA",
-  eda_rank_index:"📊 EDA-rank",
-  lineage_based: "🌿 Lineage",
-  crossover:     "✂️ Crossover",
-  workbook:      "📓 Workbook",
+
+type Op = typeof ALL_OPS[number]
+
+const OP_LABELS: Record<Op, string> = {
+  zero_order:     "🎲 Zero-order",
+  first_order:    "✏️ First-order",
+  hyper:          "🌀 Hyper-mut",
+  lamarckian:     "🧬 Lamarckian",
+  eda:            "📊 EDA",
+  eda_rank_index: "📈 EDA-rank",
+  lineage_based:  "🌿 Lineage",
+  crossover:      "✂️ Crossover",
+  workbook:       "📓 Workbook",
 }
 
-const OP_TOOLTIPS: Record<typeof ALL_OPS[number], string> = {
-  zero_order:    "Generate fresh prompt from theme (ZOHM seed)",
-  first_order:   "Mutate parent with a sampled mutation-prompt (FOHM)",
-  hyper:         "Self-referential: invent a new mutation op, then apply it",
-  lamarckian:    "Reverse-engineer a prompt from the best output",
-  eda:           "Estimation of Distribution: synthesise from top-N prompts",
-  eda_rank_index:"EDA with explicit rank context — beat rank 1",
-  lineage_based: "Follow ancestor chain and extrapolate next generation",
-  crossover:     "Combine best elements of two parent prompts",
-  workbook:      "Reverse-engineer from multiple high-quality outputs",
+const OP_TOOLTIPS: Record<Op, string> = {
+  zero_order:     "Generate a fresh prompt from the theme description alone — no parent",
+  first_order:    "Mutate parent prompt using a sampled mutation instruction (FOHM)",
+  hyper:          "Self-referential: invent a new mutation op, then apply it to the parent",
+  lamarckian:     "Reverse-engineer a better prompt from the best response generated so far",
+  eda:            "Estimation of Distribution: synthesise a new prompt from the top-N best prompts in population",
+  eda_rank_index: "Like EDA but shows explicit rank + score — asks model to beat rank-1",
+  lineage_based:  "Expose the full ancestor chain and ask the model to extrapolate the next generation",
+  crossover:      "Combine the best elements of two parent prompts into one offspring",
+  workbook:       "Reverse-engineer the ideal prompt from multiple high-quality outputs",
 }
 
 function shortName(m: string) { return m.split(":")[0].split("/").pop() ?? m }
 
 export default function EvolveForm({ models }: { models: ModelInfo[] }) {
-  const [theme, setTheme]               = useState("")
-  const [baseTask, setBaseTask]         = useState("")
-  const [judge, setJudge]               = useState("")
-  const [contestants, setContestants]   = useState<string[]>([])
-  const [generations, setGenerations]   = useState("2")
-  const [perGen, setPerGen]             = useState("3")
-  const [ops, setOps]                   = useState<string[]>([...ALL_OPS])
-  const [busy, setBusy]                 = useState(false)
-  const [result, setResult]             = useState<string | null>(null)
+  const [theme, setTheme]             = useState("")
+  const [seeds, setSeeds]             = useState<string[]>([""])   // multiple seed prompts
+  const [judge, setJudge]             = useState("")
+  const [contestants, setContestants] = useState<string[]>([])
+  const [generations, setGenerations] = useState("2")
+  const [perGen, setPerGen]           = useState("3")
+  const [ops, setOps]                 = useState<string[]>([...ALL_OPS])
+  const [busy, setBusy]               = useState(false)
+  const [result, setResult]           = useState<string | null>(null)
 
   useEffect(() => {
     if (models.length && !judge) setJudge(models[0].name)
@@ -57,9 +60,20 @@ export default function EvolveForm({ models }: { models: ModelInfo[] }) {
   function toggleOp(op: string) {
     setOps(o => o.includes(op) ? o.filter(x => x !== op) : [...o, op])
   }
+  function updateSeed(i: number, val: string) {
+    setSeeds(s => { const n = [...s]; n[i] = val; return n })
+  }
+  function addSeed() {
+    setSeeds(s => [...s, ""])
+  }
+  function removeSeed(i: number) {
+    setSeeds(s => s.length > 1 ? s.filter((_, idx) => idx !== i) : s)
+  }
+
+  const validSeeds = seeds.filter(s => s.trim())
 
   async function submit() {
-    if (!theme.trim() || !baseTask.trim() || !judge || !contestants.length || !ops.length || busy) return
+    if (!theme.trim() || !validSeeds.length || !judge || !contestants.length || !ops.length || busy) return
     setBusy(true); setResult(null)
     try {
       const r = await fetch("/api/runner/evolve", {
@@ -67,7 +81,7 @@ export default function EvolveForm({ models }: { models: ModelInfo[] }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           theme: theme.trim(),
-          base_task: baseTask.trim(),
+          seeds: validSeeds,
           judge,
           contestants,
           generations: parseInt(generations || "2"),
@@ -76,73 +90,108 @@ export default function EvolveForm({ models }: { models: ModelInfo[] }) {
         }),
       })
       const d = await r.json()
-      if (d.ok) setResult("Эволюция запущена — смотри в Прямом эфире.")
-      else setResult(`Ошибка: ${d.error}`)
+      if (d.ok) setResult("Evolution started — watch Live tab.")
+      else setResult(`Error: ${d.error}`)
     } catch (e) {
-      setResult(`Ошибка: ${e}`)
+      setResult(`Error: ${e}`)
     } finally {
       setBusy(false)
     }
   }
 
-  const canSubmit = theme.trim() && baseTask.trim() && judge && contestants.length && ops.length && !busy
+  const canSubmit = theme.trim() && validSeeds.length && judge && contestants.length && ops.length && !busy
 
   return (
     <div className="space-y-4">
+
+      {/* Theme */}
       <div>
-        <label className="text-xs text-gray-500 uppercase tracking-wide block mb-1.5">Тема (slug-key)</label>
+        <label className="text-xs text-gray-500 uppercase tracking-wide block mb-1.5">Theme (unique key)</label>
         <input
           value={theme} onChange={e => setTheme(e.target.value)}
-          placeholder="Объясни RAG джуну"
+          placeholder="Explain RAG to a junior dev"
           className="w-full bg-[#0f1117] border border-[#2a2d3e] rounded-lg px-3 py-2 text-sm text-white placeholder:text-gray-600 focus:outline-none focus:border-indigo-500"
         />
         <p className="text-[11px] text-gray-600 mt-1">
-          Lineage сохраняется по slug темы — повторный запуск продолжает существующую популяцию.
+          Re-running the same theme resumes the existing lineage.
         </p>
       </div>
 
+      {/* Seed prompts */}
       <div>
-        <label className="text-xs text-gray-500 uppercase tracking-wide block mb-1.5">
-          Базовый промпт (gen 0)
-        </label>
-        <textarea
-          value={baseTask} onChange={e => setBaseTask(e.target.value)}
-          placeholder="Напиши пост 250 слов: что такое RAG, как работает, типичные ловушки..."
-          rows={3}
-          className="w-full bg-[#0f1117] border border-[#2a2d3e] rounded-lg px-3 py-2 text-sm text-white placeholder:text-gray-600 focus:outline-none focus:border-indigo-500 resize-none"
-        />
+        <div className="flex items-center justify-between mb-1.5">
+          <label className="text-xs text-gray-500 uppercase tracking-wide">
+            Seed prompts — gen 0 ({seeds.length})
+          </label>
+          <button
+            onClick={addSeed}
+            className="text-xs text-indigo-400 hover:text-indigo-300 transition-colors border border-indigo-800/40 px-2 py-0.5 rounded"
+          >
+            + Add prompt
+          </button>
+        </div>
+        <div className="space-y-2">
+          {seeds.map((s, i) => (
+            <div key={i} className="relative">
+              <textarea
+                value={s} onChange={e => updateSeed(i, e.target.value)}
+                placeholder={`Prompt variant ${i + 1}…`}
+                rows={3}
+                className="w-full bg-[#0f1117] border border-[#2a2d3e] rounded-lg px-3 py-2 text-sm text-white placeholder:text-gray-600 focus:outline-none focus:border-indigo-500 resize-none"
+              />
+              {seeds.length > 1 && (
+                <button
+                  onClick={() => removeSeed(i)}
+                  className="absolute top-1.5 right-2 text-gray-600 hover:text-rose-400 text-xs"
+                  title="Remove"
+                >✕</button>
+              )}
+            </div>
+          ))}
+        </div>
+        <p className="text-[11px] text-gray-600 mt-1">
+          All variants are evaluated as generation 0 and compete as initial population.
+        </p>
       </div>
 
+      {/* Generations / per-gen */}
       <div className="grid grid-cols-2 gap-2">
         <div>
-          <label className="text-xs text-gray-500 uppercase tracking-wide block mb-1.5">Поколений</label>
+          <label className="text-xs text-gray-500 uppercase tracking-wide block mb-1.5">Generations</label>
           <input
-            type="number" min={1} max={5} value={generations} onChange={e => setGenerations(e.target.value)}
+            type="number" min={1} max={10} value={generations} onChange={e => setGenerations(e.target.value)}
             className="w-full bg-[#0f1117] border border-[#2a2d3e] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
           />
         </div>
         <div>
-          <label className="text-xs text-gray-500 uppercase tracking-wide block mb-1.5">Кандидатов/поколение</label>
+          <label className="text-xs text-gray-500 uppercase tracking-wide block mb-1.5">Candidates/gen</label>
           <input
-            type="number" min={1} max={6} value={perGen} onChange={e => setPerGen(e.target.value)}
+            type="number" min={1} max={8} value={perGen} onChange={e => setPerGen(e.target.value)}
             className="w-full bg-[#0f1117] border border-[#2a2d3e] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
           />
         </div>
       </div>
 
+      {/* Judge */}
       <div>
-        <label className="text-xs text-gray-500 uppercase tracking-wide block mb-1.5">Судья</label>
+        <label className="text-xs text-gray-500 uppercase tracking-wide block mb-1.5">
+          Judge (also applies mutations)
+        </label>
         <select
           value={judge} onChange={e => setJudge(e.target.value)}
           className="w-full bg-[#0f1117] border border-[#2a2d3e] rounded-lg px-3 py-2 text-sm text-gray-300"
         >
           {models.map(m => <option key={m.name} value={m.name}>{shortName(m.name)}</option>)}
         </select>
+        <p className="text-[11px] text-gray-600 mt-1">
+          Use your strongest model — it evaluates AND mutates prompts.
+        </p>
       </div>
 
+      {/* Contestant pool */}
       <div>
         <label className="text-xs text-gray-500 uppercase tracking-wide block mb-1.5">
-          Пул-исполнители ({contestants.length} выбрано)
+          Contestant pool ({contestants.length} selected)
         </label>
         <div className="space-y-1 max-h-40 overflow-y-auto border border-[#2a2d3e] rounded-lg p-2">
           {models.map(m => (
@@ -152,16 +201,18 @@ export default function EvolveForm({ models }: { models: ModelInfo[] }) {
                 className="accent-indigo-500"
               />
               <span className="truncate">{shortName(m.name)}</span>
+              {m.size_gb > 0 && <span className="text-gray-600 ml-auto shrink-0">{m.size_gb}GB</span>}
             </label>
           ))}
         </div>
         <p className="text-[11px] text-gray-600 mt-1">
-          Each candidate prompt is evaluated via round-robin Blind Double-Shuffle between all selected models.
+          Each prompt is evaluated via round-robin Blind Double-Shuffle between all selected models.
         </p>
       </div>
 
+      {/* Mutation operators */}
       <div>
-        <label className="text-xs text-gray-500 uppercase tracking-wide block mb-1.5">Мутационные операторы</label>
+        <label className="text-xs text-gray-500 uppercase tracking-wide block mb-1.5">Mutation operators</label>
         <div className="flex flex-wrap gap-1.5">
           {ALL_OPS.map(op => (
             <button
@@ -178,14 +229,15 @@ export default function EvolveForm({ models }: { models: ModelInfo[] }) {
             </button>
           ))}
         </div>
+        <p className="text-[11px] text-gray-600 mt-1">Hover any operator for description.</p>
       </div>
 
       <button
         onClick={submit}
         disabled={!canSubmit}
-        className="w-full py-2 px-4 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+        className="w-full py-2.5 px-4 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
       >
-        {busy ? "Запускаю..." : "🧬 Запустить эволюцию"}
+        {busy ? "Starting…" : `🧬 Start evolution (${validSeeds.length} seed${validSeeds.length > 1 ? "s" : ""})`}
       </button>
       {result && <p className="text-sm text-gray-400">{result}</p>}
     </div>
