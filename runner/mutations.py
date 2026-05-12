@@ -16,36 +16,74 @@ Operators implemented (9 total):
   crossover       — combine best elements of two parents
   workbook        — reverse-engineer from multiple high-quality outputs
 
-All operators accept an `ask(user, system) -> str | None` callable so they
-remain HTTP-agnostic. The `apply_operator` dispatcher is the public API.
+Every operator now returns a MutationResult (not just str), which carries:
+  • text           — the new prompt text
+  • mutation_prompt — the exact user-message sent to the LLM (transparency)
+  • thinking_style — thinking style applied (if any)
+  • target_metric  — which criterion we're trying to improve
+  • hypothesis     — one-sentence reason for this mutation choice
 """
 from __future__ import annotations
 import random
 import re
-from typing import Callable, Optional
+from dataclasses import dataclass, field
+from typing import Callable, List, Optional
 
 
-# ── Seed mutation prompts (FOHM mutation-prompt pool) ─────────────────────
-SEED_MUTATION_PROMPTS = [
-    "Rewrite this instruction to be more concrete — require numbers and real examples.",
-    "Make the instruction shorter and sharper; remove all filler.",
-    "Add a required structure: question → analysis → conclusion.",
-    "Ask the author to open with a paradox or surprising fact.",
-    "Strengthen the accuracy requirement; ask for verifiable sources.",
-    "Request a specific genre: one-case storytelling.",
-    "Constrain the response to under 250 words.",
-    "Add an originality criterion: 'show an angle nobody else uses'.",
-    "Require a clear call-to-action at the end.",
-    "Rewrite as a 5-point checklist.",
-    "Demand that every claim be backed by a concrete example or number.",
-    "Ask for the most counterintuitive implication of the topic.",
-    "Require the author to steelman the opposite view before their conclusion.",
-    "Add a constraint: no passive voice, no hedging phrases.",
-    "Ask for a comparison between two competing approaches.",
+# ── MutationResult ────────────────────────────────────────────────────────
+@dataclass
+class MutationResult:
+    """Carries the new prompt text plus full provenance metadata."""
+    text:           str
+    mutation_prompt: str               # what was sent to the LLM
+    thinking_style: Optional[str] = None
+    target_metric:  Optional[str] = None
+    hypothesis:     str            = ""
+
+    def to_dict(self) -> dict:
+        return {
+            "mutation_prompt": self.mutation_prompt,
+            "thinking_style":  self.thinking_style,
+            "target_metric":   self.target_metric,
+            "hypothesis":      self.hypothesis,
+        }
+
+
+# ── Seed mutation prompts (FOHM pool) — grouped by target criterion ───────
+MUTATION_PROMPTS_BY_CRITERION: dict[str, list[str]] = {
+    "density": [
+        "Make the instruction shorter and sharper; remove all filler.",
+        "Add a constraint: no passive voice, no hedging phrases.",
+        "Constrain the response to under 250 words.",
+        "Demand zero AI-speak: ban 'certainly', 'great question', 'in conclusion'.",
+    ],
+    "specificity": [
+        "Rewrite to require numbers and real named examples — ban vague generalities.",
+        "Demand that every claim be backed by a concrete example or a number.",
+        "Ask for a comparison between two competing named approaches.",
+        "Require at least one counter-intuitive implication of the topic.",
+    ],
+    "instruction_following": [
+        "Add a required structure: question → analysis → concrete conclusion.",
+        "Rewrite as a 5-step checklist the author must follow.",
+        "Require a clear call-to-action in the last sentence.",
+        "Add an originality criterion: 'show an angle nobody else uses'.",
+    ],
+    "logic_accuracy": [
+        "Strengthen the accuracy requirement; demand verifiable sources or real citations.",
+        "Require the author to steelman the opposite view before concluding.",
+        "Ask for the strongest counter-argument to the mainstream answer.",
+        "Demand that any statistics cited be attributable to a named study or organisation.",
+    ],
+}
+
+# Flat list for operators that don't need criterion-targeting
+SEED_MUTATION_PROMPTS: list[str] = [
+    p for prompts in MUTATION_PROMPTS_BY_CRITERION.values() for p in prompts
 ]
 
 # ── Thinking-style seeds (Appendix G of PromptBreeder paper) ──────────────
-SEED_THINKING_STYLES = [
+SEED_THINKING_STYLES: list[str] = [
     "Think step by step.",
     "Find analogies in adjacent fields.",
     "What would a median practitioner miss?",
@@ -72,13 +110,12 @@ def _clean(s: str) -> str:
     ):
         if s.lower().startswith(prefix.lower()):
             s = s[len(prefix):].strip().strip("«»\"' ")
-    # Drop leading numbering "1. " or "1) "
     if len(s) > 3 and s[0].isdigit() and s[1] in (".", ")"):
         s = s[2:].strip()
     return s
 
 
-# ── Theme-anchor constraint (injected into every operator) ────────────────
+# ── Theme-anchor constraint ────────────────────────────────────────────────
 _THEME_ANCHOR = (
     "IMPORTANT: the original topic is «{theme}». "
     "The new instruction MUST stay on this topic. "
@@ -87,17 +124,36 @@ _THEME_ANCHOR = (
 )
 
 
+def _weakest_criterion(fitness: dict) -> Optional[str]:
+    """Return the criterion with the lowest score in the parent's fitness."""
+    from lineage import CRITERIA  # local import to avoid circular
+    if not fitness or not fitness.get("n_evals"):
+        return None
+    return min(CRITERIA, key=lambda c: fitness.get(c, 0))
+
+
+def _pick_mutation_for_criterion(
+    criterion: Optional[str],
+    rng: random.Random,
+) -> str:
+    """Pick a mutation prompt that targets the given criterion (or random)."""
+    if criterion and criterion in MUTATION_PROMPTS_BY_CRITERION:
+        pool = MUTATION_PROMPTS_BY_CRITERION[criterion]
+    else:
+        pool = SEED_MUTATION_PROMPTS
+    return rng.choice(pool)
+
+
 # ── Operator implementations ───────────────────────────────────────────────
 
 def op_zero_order(
     theme_label: str,
     ask: Callable[[str, str], Optional[str]],
     rng: random.Random,
-) -> Optional[str]:
+) -> Optional[MutationResult]:
     """
     Zero-Order Hyper-Mutation (ZOHM seed variant, §3.1).
     Generate a fresh prompt from the theme description alone — no parent.
-    Uses a randomly sampled thinking style as creative seed.
     """
     style = rng.choice(SEED_THINKING_STYLES)
     sys = (
@@ -108,20 +164,30 @@ def op_zero_order(
     )
     user = f"Topic: «{theme_label}»\n\nThinking style to apply: «{style}»"
     reply = ask(user, sys)
-    return _clean(reply) if reply else None
+    if not reply:
+        return None
+    return MutationResult(
+        text=_clean(reply),
+        mutation_prompt=user,
+        thinking_style=style,
+        target_metric=None,
+        hypothesis=f"Генерирую свежий промпт для темы «{theme_label}» со стилем мышления: «{style}».",
+    )
 
 
 def op_first_order(
     parent_text: str,
+    parent_fitness: dict,
     theme_label: str,
     ask: Callable[[str, str], Optional[str]],
     rng: random.Random,
-) -> Optional[str]:
+) -> Optional[MutationResult]:
     """
     First-Order Hyper-Mutation (FOHM, §3.1).
-    Mutate the parent prompt using a randomly sampled mutation-prompt.
+    Mutate the parent using a mutation-prompt biased toward the weakest criterion.
     """
-    mut = rng.choice(SEED_MUTATION_PROMPTS)
+    target = _weakest_criterion(parent_fitness)
+    mut = _pick_mutation_for_criterion(target, rng)
     sys = (
         "You are a prompt engineering expert. Apply the given mutation operation to "
         "the instruction and return the improved version. "
@@ -130,18 +196,31 @@ def op_first_order(
     )
     user = f"TOPIC: {theme_label}\n\nINSTRUCTION:\n{parent_text}\n\nMUTATION:\n{mut}"
     reply = ask(user, sys)
-    return _clean(reply) if reply else None
+    if not reply:
+        return None
+    score_str = f"{parent_fitness.get(target, 0):.1f}/10" if target else "—"
+    return MutationResult(
+        text=_clean(reply),
+        mutation_prompt=user,
+        thinking_style=None,
+        target_metric=target,
+        hypothesis=(
+            f"Применяю мутацию «{mut[:70]}». "
+            f"Целевой критерий: {target or 'general'} ({score_str} у родителя)."
+        ),
+    )
 
 
 def op_hyper(
     parent_text: str,
+    parent_fitness: dict,
     theme_label: str,
     ask: Callable[[str, str], Optional[str]],
     rng: random.Random,
-) -> Optional[str]:
+) -> Optional[MutationResult]:
     """
     Self-Referential Hyper-Mutation (§3.2).
-    Step 1: invent a new mutation operation (constrained to meta-changes only).
+    Step 1: invent a new mutation operation.
     Step 2: apply the invented operation to the parent prompt.
     """
     meta = rng.choice(SEED_MUTATION_PROMPTS)
@@ -165,20 +244,32 @@ def op_hyper(
     )
     user = f"TOPIC: {theme_label}\n\nINSTRUCTION:\n{parent_text}\n\nOPERATION:\n{new_mut}"
     reply = ask(user, sys2)
-    return _clean(reply) if reply else None
+    if not reply:
+        return None
+    target = _weakest_criterion(parent_fitness)
+    return MutationResult(
+        text=_clean(reply),
+        mutation_prompt=user,
+        thinking_style=None,
+        target_metric=target,
+        hypothesis=(
+            f"Самоссылочная мутация. Изобретённая операция: «{new_mut[:80]}». "
+            f"Целевой критерий: {target or 'general'}."
+        ),
+    )
 
 
 def op_lamarckian(
     parent_text: str,
+    parent_fitness: dict,
     theme_label: str,
     successful_output: str,
     ask: Callable[[str, str], Optional[str]],
     rng: random.Random,
-) -> Optional[str]:
+) -> Optional[MutationResult]:
     """
     Lamarckian Mutation (§3.3).
     Reverse-engineer a prompt from one high-scoring response.
-    The resulting prompt must be generic, not a paraphrase of the example.
     """
     sys = (
         "You are a prompt engineering expert. Given a topic and an example of an "
@@ -195,7 +286,20 @@ def op_lamarckian(
         "What instruction would reliably produce this level of quality?"
     )
     reply = ask(user, sys)
-    return _clean(reply) if reply else None
+    if not reply:
+        return None
+    target = _weakest_criterion(parent_fitness)
+    words = len(successful_output.split())
+    return MutationResult(
+        text=_clean(reply),
+        mutation_prompt=user,
+        thinking_style=None,
+        target_metric=target,
+        hypothesis=(
+            f"Реверс-инжиниринг из лучшего ответа ({words} слов). "
+            f"Целевой критерий: {target or 'general'}."
+        ),
+    )
 
 
 def op_eda(
@@ -204,11 +308,10 @@ def op_eda(
     ask: Callable[[str, str], Optional[str]],
     rng: random.Random,
     top_n: int = 5,
-) -> Optional[str]:
+) -> Optional[MutationResult]:
     """
     Estimation of Distribution Mutation (EDA, §3.3).
-    Sample patterns from the top-N scored prompts and synthesise a new one.
-    Analogy: cross-entropy method over the prompt distribution.
+    Synthesise from patterns in top-N scored prompts.
     """
     scored = sorted(
         [p for p in population if p.get("fitness", {}).get("n_evals")],
@@ -229,7 +332,19 @@ def op_eda(
     )
     user = f"TOPIC: {theme_label}\n\nTOP-PERFORMING PROMPTS:\n{examples}\n\nGenerate a better prompt:"
     reply = ask(user, sys)
-    return _clean(reply) if reply else None
+    if not reply:
+        return None
+    avg_top = sum(p["fitness"].get("avg_score", 0) for p in scored) / len(scored)
+    return MutationResult(
+        text=_clean(reply),
+        mutation_prompt=user,
+        thinking_style=None,
+        target_metric=None,
+        hypothesis=(
+            f"EDA: синтез из топ-{len(scored)} промптов популяции "
+            f"(средний avg {avg_top:.2f}/10)."
+        ),
+    )
 
 
 def op_eda_rank_index(
@@ -238,11 +353,10 @@ def op_eda_rank_index(
     ask: Callable[[str, str], Optional[str]],
     rng: random.Random,
     top_n: int = 5,
-) -> Optional[str]:
+) -> Optional[MutationResult]:
     """
     EDA Rank-and-Index Mutation (§3.3).
-    Like EDA but shows explicit rank + score, asking the LLM to reason about
-    the delta between ranks and extrapolate.
+    Like EDA but shows explicit rank + score, asking to beat rank-1.
     """
     scored = sorted(
         [p for p in population if p.get("fitness", {}).get("n_evals")],
@@ -267,26 +381,38 @@ def op_eda_rank_index(
     )
     user = f"TOPIC: {theme_label}\n\nRANKED PROMPTS:\n{ranked}\n\nGenerate a superior prompt:"
     reply = ask(user, sys)
-    return _clean(reply) if reply else None
+    if not reply:
+        return None
+    top_score = scored[0]["fitness"].get("avg_score", 0)
+    return MutationResult(
+        text=_clean(reply),
+        mutation_prompt=user,
+        thinking_style=None,
+        target_metric=None,
+        hypothesis=(
+            f"EDA-ранг: цель — превзойти промпт #1 (score {top_score:.2f}/10). "
+            f"Использовано {len(scored)} промптов с явным ранжированием."
+        ),
+    )
 
 
 def op_lineage_based(
     parent_text: str,
+    parent_fitness: dict,
     theme_label: str,
     ancestors: list[str],
     ask: Callable[[str, str], Optional[str]],
     rng: random.Random,
-) -> Optional[str]:
+) -> Optional[MutationResult]:
     """
     Lineage-Based Mutation (§3.3).
-    Expose the full ancestor chain to the LLM and ask it to extrapolate the
-    next evolutionary step — like gradient estimation over discrete prompt space.
+    Expose the full ancestor chain and extrapolate the next step.
     """
     if not ancestors:
-        return op_first_order(parent_text, theme_label, ask, rng)
+        return op_first_order(parent_text, parent_fitness, theme_label, ask, rng)
 
     history = "\n".join(
-        f"  gen {i}: {t}" for i, t in enumerate(ancestors[-6:])  # last 6 ancestors
+        f"  gen {i}: {t}" for i, t in enumerate(ancestors[-6:])
     )
     sys = (
         "You are a prompt engineering expert studying prompt evolution. "
@@ -303,20 +429,31 @@ def op_lineage_based(
         f"Generate the next evolution:"
     )
     reply = ask(user, sys)
-    return _clean(reply) if reply else None
+    if not reply:
+        return None
+    return MutationResult(
+        text=_clean(reply),
+        mutation_prompt=user,
+        thinking_style=None,
+        target_metric=None,
+        hypothesis=(
+            f"Линейная эволюция: экстраполяция из {len(ancestors)} поколений предков."
+        ),
+    )
 
 
 def op_crossover(
     parent_a: str,
     parent_b: str,
+    parent_a_fitness: dict,
+    parent_b_fitness: dict,
     theme_label: str,
     ask: Callable[[str, str], Optional[str]],
     rng: random.Random,
-) -> Optional[str]:
+) -> Optional[MutationResult]:
     """
     Prompt Crossover.
-    Combine the strongest elements of two parent prompts into one offspring.
-    Analogous to genetic crossover; exploits diversity in the population.
+    Combine the strongest elements of two parent prompts.
     """
     sys = (
         "You are a prompt engineering expert. Combine the strongest elements of two "
@@ -332,23 +469,36 @@ def op_crossover(
         f"Combine the best of both:"
     )
     reply = ask(user, sys)
-    return _clean(reply) if reply else None
+    if not reply:
+        return None
+    score_a = parent_a_fitness.get("avg_score", 0) if parent_a_fitness else 0
+    score_b = parent_b_fitness.get("avg_score", 0) if parent_b_fitness else 0
+    return MutationResult(
+        text=_clean(reply),
+        mutation_prompt=user,
+        thinking_style=None,
+        target_metric=None,
+        hypothesis=(
+            f"Кроссовер: объединяю промпт A (avg {score_a:.2f}) "
+            f"и промпт B (avg {score_b:.2f})."
+        ),
+    )
 
 
 def op_workbook(
     parent_text: str,
+    parent_fitness: dict,
     theme_label: str,
     good_outputs: list[str],
     ask: Callable[[str, str], Optional[str]],
     rng: random.Random,
-) -> Optional[str]:
+) -> Optional[MutationResult]:
     """
     Workbook Mutation (multi-output Lamarckian, §3.3 extension).
-    Reverse-engineer the ideal prompt from MULTIPLE high-scoring outputs,
-    increasing signal by aggregating across examples.
+    Reverse-engineer from MULTIPLE high-scoring outputs.
     """
     if not good_outputs:
-        return op_first_order(parent_text, theme_label, ask, rng)
+        return op_first_order(parent_text, parent_fitness, theme_label, ask, rng)
 
     examples = "\n\n---\n\n".join(
         f"[Example {i+1}]\n{o[:600]}" for i, o in enumerate(good_outputs[:3])
@@ -367,17 +517,29 @@ def op_workbook(
         f"What instruction would reliably produce such outputs?"
     )
     reply = ask(user, sys)
-    return _clean(reply) if reply else None
+    if not reply:
+        return None
+    target = _weakest_criterion(parent_fitness)
+    return MutationResult(
+        text=_clean(reply),
+        mutation_prompt=user,
+        thinking_style=None,
+        target_metric=target,
+        hypothesis=(
+            f"Workbook: реверс-инжиниринг из {len(good_outputs[:3])} качественных ответов. "
+            f"Целевой критерий: {target or 'general'}."
+        ),
+    )
 
 
-# ── Helpers for operators that need lineage context ────────────────────────
+# ── Helpers ────────────────────────────────────────────────────────────────
 
 def _get_ancestor_texts(prompt: dict, all_prompts: list[dict]) -> list[str]:
     """Walk parent_id chain; return texts oldest → newest (excluding current)."""
     by_id = {p["id"]: p for p in all_prompts}
     chain: list[str] = []
     current = prompt
-    seen = set()
+    seen: set[str] = set()
     while current.get("parent_id"):
         pid = current["parent_id"]
         if pid in seen:
@@ -430,22 +592,11 @@ def _drift_check(theme: str, new_prompt: str) -> bool:
 # ── Operator registry ──────────────────────────────────────────────────────
 
 ALL_OPERATORS = [
-    "zero_order",
-    "first_order",
-    "hyper",
-    "lamarckian",
-    "eda",
-    "eda_rank_index",
-    "lineage_based",
-    "crossover",
-    "workbook",
-]
-
-# Default set for the evolve CLI (excludes operators that require ≥2 prompts in lineage)
-DEFAULT_OPERATORS = [
     "zero_order", "first_order", "hyper", "lamarckian",
     "eda", "eda_rank_index", "lineage_based", "crossover", "workbook",
 ]
+
+DEFAULT_OPERATORS = ALL_OPERATORS[:]
 
 
 def apply_operator(
@@ -455,30 +606,30 @@ def apply_operator(
     ask: Callable[[str, str], Optional[str]],
     rng: random.Random,
     lineage: Optional[dict] = None,
-) -> Optional[str]:
+) -> Optional[MutationResult]:
     """
-    Dispatcher.  Returns mutated prompt text, or None on failure.
+    Dispatcher. Returns a MutationResult (text + provenance), or None on failure.
     Operators that need population context receive `lineage`.
     """
     prompts: list[dict] = lineage["prompts"] if lineage else [parent]
+    pf = parent.get("fitness", {})   # parent fitness (may be empty)
 
     if op == "zero_order":
         result = op_zero_order(theme_label, ask, rng)
 
     elif op == "first_order":
-        result = op_first_order(parent["text"], theme_label, ask, rng)
+        result = op_first_order(parent["text"], pf, theme_label, ask, rng)
 
     elif op == "hyper":
-        result = op_hyper(parent["text"], theme_label, ask, rng)
+        result = op_hyper(parent["text"], pf, theme_label, ask, rng)
 
     elif op == "lamarckian":
         outputs = parent.get("sample_outputs", {})
         if not outputs:
-            result = op_first_order(parent["text"], theme_label, ask, rng)
+            result = op_first_order(parent["text"], pf, theme_label, ask, rng)
         else:
-            # pick the best output (by win_rate if available, else by length)
             best = max(outputs.values(), key=len)
-            result = op_lamarckian(parent["text"], theme_label, best, ask, rng)
+            result = op_lamarckian(parent["text"], pf, theme_label, best, ask, rng)
 
     elif op == "eda":
         result = op_eda(theme_label, prompts, ask, rng)
@@ -488,24 +639,28 @@ def apply_operator(
 
     elif op == "lineage_based":
         ancestors = _get_ancestor_texts(parent, prompts)
-        result = op_lineage_based(parent["text"], theme_label, ancestors, ask, rng)
+        result = op_lineage_based(parent["text"], pf, theme_label, ancestors, ask, rng)
 
     elif op == "crossover":
         others = [p for p in prompts if p["id"] != parent["id"]]
         if others:
             second = rng.choice(others)
-            result = op_crossover(parent["text"], second["text"], theme_label, ask, rng)
+            result = op_crossover(
+                parent["text"], second["text"],
+                pf, second.get("fitness", {}),
+                theme_label, ask, rng,
+            )
         else:
-            result = op_first_order(parent["text"], theme_label, ask, rng)
+            result = op_first_order(parent["text"], pf, theme_label, ask, rng)
 
     elif op == "workbook":
         good = _get_good_outputs(prompts)
-        result = op_workbook(parent["text"], theme_label, good, ask, rng)
+        result = op_workbook(parent["text"], pf, theme_label, good, ask, rng)
 
     else:
         raise ValueError(f"Unknown operator: {op!r}")
 
     # Drift guard — discard mutations that wandered off-topic
-    if result and not _drift_check(theme_label, result):
+    if result and not _drift_check(theme_label, result.text):
         return None
     return result

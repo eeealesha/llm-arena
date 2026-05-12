@@ -49,7 +49,7 @@ from lineage import (
     slugify,
     update_fitness,
 )
-from mutations import ALL_OPERATORS, apply_operator
+from mutations import ALL_OPERATORS, MutationResult, apply_operator
 
 
 # ── System prompts ────────────────────────────────────────────────────────
@@ -398,39 +398,49 @@ def run_evolve(
             _emit({"type": "mutation_attempt",
                    "gen": g, "op": op, "parent_id": parent["id"]})
 
-            new_text = apply_operator(
+            result: Optional[MutationResult] = apply_operator(
                 op, parent, theme, _ask_text, rng, lineage=lineage
             )
 
-            if not new_text:
+            if not result:
                 _emit({"type": "mutation_failed", "gen": g, "op": op,
                        "parent_id": parent["id"], "reason": "empty_or_off_theme"})
                 continue
-            if len(new_text) < 20:
+            if len(result.text) < 20:
                 _emit({"type": "mutation_failed", "gen": g, "op": op,
                        "parent_id": parent["id"], "reason": "too_short"})
                 continue
-            if new_text == parent["text"]:
+            if result.text == parent["text"]:
                 _emit({"type": "mutation_failed", "gen": g, "op": op,
                        "parent_id": parent["id"], "reason": "identical_to_parent"})
                 continue
 
             child = add_prompt(
                 lineage,
-                text=new_text,
+                text=result.text,
                 parent_id=parent["id"],
                 mutation_op=op,
                 generation=g,
+                mutation_meta=result.to_dict(),
             )
-            _emit({"type": "mutation_done",
-                   "gen": g, "op": op,
-                   "parent_id": parent["id"],
-                   "id": child["id"],
-                   "text": child["text"]})
+            _emit({
+                "type":           "mutation_done",
+                "gen":            g,
+                "op":             op,
+                "parent_id":      parent["id"],
+                "id":             child["id"],
+                "text":           child["text"],
+                # Provenance fields — shown in live UI and stored in graph edges
+                "mutation_prompt": result.mutation_prompt[:500],
+                "thinking_style":  result.thinking_style,
+                "target_metric":   result.target_metric,
+                "hypothesis":      result.hypothesis,
+            })
 
             _emit({"type": "prompt_evaluating",
                    "id": child["id"], "generation": g, "op": op})
 
+            delta: dict = {}
             scored = _evaluate_prompt(
                 prompt_text=child["text"],
                 theme_label=theme,
@@ -446,15 +456,36 @@ def run_evolve(
                 )
                 child["feedback_summary"] = _aggregate_feedback(scored)
 
+                # Compute delta vs parent and store it in the mutations[] record
+                parent_fitness = parent.get("fitness", {})
+                if parent_fitness.get("n_evals"):
+                    delta = {
+                        c: round(child["fitness"].get(c, 0) - parent_fitness.get(c, 0), 2)
+                        for c in CRITERIA
+                    }
+                    delta["avg_score"] = round(
+                        child["fitness"].get("avg_score", 0) -
+                        parent_fitness.get("avg_score", 0), 2
+                    )
+                    # Update the mutations[] entry we just added
+                    for mut_rec in reversed(lineage.get("mutations", [])):
+                        if mut_rec.get("child_id") == child["id"]:
+                            mut_rec["delta"] = delta
+                            break
+                else:
+                    delta = {}
+
             mark_pareto(lineage)
             save_lineage(data_dir, lineage)
             added_ids.append(child["id"])
 
             _emit({
-                "type": "prompt_evaluated",
-                "id": child["id"],
-                "fitness": child["fitness"],
+                "type":      "prompt_evaluated",
+                "id":        child["id"],
+                "fitness":   child["fitness"],
                 "is_pareto": child["is_pareto"],
+                "text":      child["text"],
+                "delta":     delta,
             })
 
         record_generation(lineage, g, added_ids)

@@ -50,6 +50,7 @@ def _empty_lineage(theme_slug: str, theme_label: str) -> dict:
         "created_at": datetime.now().isoformat(),
         "updated_at": datetime.now().isoformat(),
         "prompts": [],
+        "mutations": [],   # MutationRecord list — one per child (except seeds)
         "generations": [],
     }
 
@@ -164,9 +165,11 @@ def add_prompt(
     mutation_op: str,
     generation: int,
     extra: Optional[dict] = None,
+    mutation_meta: Optional[dict] = None,
 ) -> dict:
+    pid = new_prompt_id()
     new_p = {
-        "id": new_prompt_id(),
+        "id": pid,
         "text": text.strip(),
         "parent_id": parent_id,
         "mutation_op": mutation_op,
@@ -178,7 +181,26 @@ def add_prompt(
     }
     if extra:
         new_p.update(extra)
+
+    # Store mutation provenance directly on the prompt node
+    if mutation_meta:
+        new_p["mutation_meta"] = mutation_meta
+
     lineage["prompts"].append(new_p)
+
+    # Also append to the top-level mutations[] array for fast graph lookup
+    if mutation_meta and parent_id:
+        lineage.setdefault("mutations", []).append({
+            "child_id":       pid,
+            "parent_id":      parent_id,
+            "operator":       mutation_op,
+            "mutation_prompt": mutation_meta.get("mutation_prompt", ""),
+            "thinking_style": mutation_meta.get("thinking_style"),
+            "target_metric":  mutation_meta.get("target_metric"),
+            "hypothesis":     mutation_meta.get("hypothesis", ""),
+            "delta":          {},   # filled after evaluation in evolve.py
+        })
+
     return new_p
 
 
